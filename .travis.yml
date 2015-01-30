@@ -20,4 +20,4 @@ script:
   - go test -covermode=count -coverprofile=profile.cov .
 
 after_script:
-  - $HOME/gopath/bin/goveralls -coverprofile=profile.cov -service=travis-ci
+  - $HOME/gopath/bin/goveralls -coverprofile=profile.cov -service=travis-ci || true
