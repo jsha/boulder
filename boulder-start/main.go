@@ -45,10 +45,23 @@ func main() {
 	app := cli.NewApp()
 	app.Name = "boulder-start"
 	app.Usage = "Command-line utility to start Boulder's servers in stand-alone mode"
-	app.Version = "0.0.0"
+	app.Version = "0.1.0"
 
 	// Server URL hard-coded for now
 	amqpServerURL := "amqp://guest:guest@localhost:5672"
+
+	app.Flags = []cli.Flag {
+		cli.StringFlag{
+			Name: "listen",
+			Value: "localhost:4000",
+			Usage: "Address and port for the frontend to listen on.",
+		},
+		cli.StringFlag{
+			Name: "base-url",
+			Value: "http://localhost:4000",
+			Usage: "Base URL for web frontend, visible to clients.",
+		},
+	}
 
 	// One command per element of the system
 	// * WebFrontEnd
@@ -82,18 +95,18 @@ func main() {
 				va.RA = &ra
 
 				// Go!
-				authority := "localhost:4000"
+				baseUrl := c.GlobalString("base-url")
 				authzPath := "/acme/authz/"
 				certPath := "/acme/cert/"
-				wfe.SetAuthzBase("http://" + authority + authzPath)
-				wfe.SetCertBase("http://" + authority + certPath)
+				wfe.SetAuthzBase(baseUrl + authzPath)
+				wfe.SetCertBase(baseUrl + certPath)
 				http.HandleFunc("/acme/new-authz", wfe.NewAuthz)
 				http.HandleFunc("/acme/new-cert", wfe.NewCert)
 				http.HandleFunc("/acme/authz/", wfe.Authz)
 				http.HandleFunc("/acme/cert/", wfe.Cert)
 
 				fmt.Fprintf(os.Stderr, "Server running...\n")
-				err = http.ListenAndServe(authority, nil)
+				err = http.ListenAndServe(c.GlobalString("listen"), nil)
 				failOnError(err, "Error starting HTTP server")
 			},
 		},
@@ -137,18 +150,18 @@ func main() {
 				wfe.SA = &sac
 
 				// Go!
-				authority := "localhost:4000"
+				baseUrl := c.GlobalString("base-url")
 				authzPath := "/acme/authz/"
 				certPath := "/acme/cert/"
-				wfe.SetAuthzBase("http://" + authority + authzPath)
-				wfe.SetCertBase("http://" + authority + certPath)
+				wfe.SetAuthzBase(baseUrl + authzPath)
+				wfe.SetCertBase(baseUrl + certPath)
 				http.HandleFunc("/acme/new-authz", wfe.NewAuthz)
 				http.HandleFunc("/acme/new-cert", wfe.NewCert)
 				http.HandleFunc("/acme/authz/", wfe.Authz)
 				http.HandleFunc("/acme/cert/", wfe.Cert)
 
 				fmt.Fprintf(os.Stderr, "Server running...\n")
-				err = http.ListenAndServe(authority, nil)
+				err = http.ListenAndServe(c.GlobalString("listen"), nil)
 				failOnError(err, "Error starting HTTP server")
 			},
 		},
@@ -171,18 +184,18 @@ func main() {
 				wfe.SA = &sac
 
 				// Connect the front end to HTTP
-				authority := "localhost:4000"
+				baseUrl := c.GlobalString("base-url")
 				authzPath := "/acme/authz/"
 				certPath := "/acme/cert/"
-				wfe.SetAuthzBase("http://" + authority + authzPath)
-				wfe.SetCertBase("http://" + authority + certPath)
+				wfe.SetAuthzBase(baseUrl + authzPath)
+				wfe.SetCertBase(baseUrl + certPath)
 				http.HandleFunc("/acme/new-authz", wfe.NewAuthz)
 				http.HandleFunc("/acme/new-cert", wfe.NewCert)
 				http.HandleFunc("/acme/authz/", wfe.Authz)
 				http.HandleFunc("/acme/cert/", wfe.Cert)
 
 				fmt.Fprintf(os.Stderr, "Server running...\n")
-				http.ListenAndServe(authority, nil)
+				http.ListenAndServe(c.GlobalString("listen"), nil)
 			},
 		},
 		{
