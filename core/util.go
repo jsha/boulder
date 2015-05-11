@@ -98,6 +98,8 @@ func Fingerprint256(data []byte) string {
 
 func KeyDigest(key crypto.PublicKey) string {
 	switch t := key.(type) {
+		case *jose.JsonWebKey:
+			return KeyDigest(t.Key)
 		case jose.JsonWebKey:
 			return KeyDigest(t.Key)
 		default:
