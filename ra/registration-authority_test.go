@@ -63,11 +63,11 @@ func (cadb *MockCADatabase) IncrementAndGetSerial() (int, error) {
 var (
 	// These values we simulate from the client
 	AccountKeyJSON = []byte(`{
-     "kty": "EC",
-     "crv": "P-521",
-     "x": "AHKZLLOsCOzz5cY97ewNUajB957y-C-U88c3v13nmGZx6sYl_oJXu9A5RkTKqjqvjyekWF-7ytDyRXYgCF5cj0Kt",
-     "y": "AdymlHvOiLxXkEhayXQnNCvDX4h9htZaCJN34kfmC6pV5OhQHiraVySsUdaQkAgDPrwQrJmbnX9cwlGfP-HqHZR1"
-   }`)
+		"kty": "EC",
+		"crv": "P-521",
+		"x": "AHKZLLOsCOzz5cY97ewNUajB957y-C-U88c3v13nmGZx6sYl_oJXu9A5RkTKqjqvjyekWF-7ytDyRXYgCF5cj0Kt",
+		"y": "AdymlHvOiLxXkEhayXQnNCvDX4h9htZaCJN34kfmC6pV5OhQHiraVySsUdaQkAgDPrwQrJmbnX9cwlGfP-HqHZR1"
+	}`)
 	AccountKey = jose.JsonWebKey{}
 
 	AuthzRequest = core.Authorization{

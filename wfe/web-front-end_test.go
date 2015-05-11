@@ -6,8 +6,6 @@
 package wfe
 
 import (
-	"crypto/rand"
-	"crypto/rsa"
 	"crypto/x509"
 	"encoding/json"
 	"fmt"
@@ -30,6 +28,27 @@ import (
 
 func makeBody(s string) io.ReadCloser {
 	return ioutil.NopCloser(strings.NewReader(s))
+}
+
+func signRequest(t *testing.T, req string) string {
+	fmt.Println("burp")
+	accountKeyJSON := []byte(`{
+		"kty": "EC",
+		"crv": "P-521",
+		"x": "AHKZLLOsCOzz5cY97ewNUajB957y-C-U88c3v13nmGZx6sYl_oJXu9A5RkTKqjqvjyekWF-7ytDyRXYgCF5cj0Kt",
+		"y": "AdymlHvOiLxXkEhayXQnNCvDX4h9htZaCJN34kfmC6pV5OhQHiraVySsUdaQkAgDPrwQrJmbnX9cwlGfP-HqHZR1"
+	}`)
+	accountKey := jose.JsonWebKey{}
+
+	err := json.Unmarshal(accountKeyJSON, &accountKey)
+	test.AssertNotError(t, err, "Failed to unmarshall JWK")
+	signer, err := jose.NewSigner("RS256", accountKey)
+	test.AssertNotError(t, err, "Failed to make signer")
+	result, err := signer.Sign([]byte(req))
+	test.AssertNotError(t, err, "Failed to sign req")
+	ret := result.FullSerialize()
+	fmt.Println("Ret ", ret)
+	return ret
 }
 
 func TestIndex(t *testing.T) {
@@ -358,19 +377,14 @@ func TestRegistration(t *testing.T) {
 		responseWriter.Body.String(),
 		"{\"detail\":\"Unable to read/verify body\"}")
 
-	key, _ := rsa.GenerateKey(rand.Reader, 512)
-	jws, err := jose.Sign(jose.RSAPSSWithSHA256, *key, []byte("{\"contact\":[\"tel:123456789\"]}"))
-	fmt.Println(err)
-	requestPayload, _ := json.Marshal(jws)
-
 	responseWriter.Body.Reset()
 	wfe.NewRegistration(responseWriter, &http.Request{
 		Method: "POST",
-		Body: makeBody(string(requestPayload)),
+		Body: makeBody(signRequest(t, "{\"contact\":[\"tel:123456789\"]}")),
 	})
 
 	var reg core.Registration
-	err = json.Unmarshal([]byte(responseWriter.Body.String()), &reg)
+	err := json.Unmarshal([]byte(responseWriter.Body.String()), &reg)
 	test.AssertNotError(t, err, "Couldn't unmarshal returned registration object")
 	uu := url.URL(reg.Contact[0])
 	test.AssertEquals(t, uu.String(), "tel:123456789")
@@ -450,14 +464,10 @@ func TestAuthorization(t *testing.T) {
 		responseWriter.Body.String(),
 		"{\"detail\":\"Unable to read/verify body\"}")
 
-	key, _ := rsa.GenerateKey(rand.Reader, 512)
-	jws, err := jose.Sign(jose.RSAPSSWithSHA256, *key, []byte("{\"identifier\":{\"type\":\"dns\",\"value\":\"test.com\"}}"))
-	fmt.Println(err)
-	requestPayload, _ := json.Marshal(jws)
 	
 	responseWriter.Body.Reset()
 	wfe.NewAuthorization(responseWriter, &http.Request{
 		Method: "POST",
-		Body: makeBody(string(requestPayload)),
+		Body: makeBody(signRequest(t, "{\"identifier\":{\"type\":\"dns\",\"value\":\"test.com\"}}")),
 	})
 }
