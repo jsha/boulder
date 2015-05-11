@@ -68,12 +68,12 @@ func (tc boulderTypeConverter) ToDb(val interface{}) (interface{}, error) {
 		// write to the DB with the default, empty key, so we treat it specially,
 		// deserializing to a nil key pointer. TODO: Modify authorizations to refer
 		// to a registration id, and make sure registration ids are always filled.
-		if t.KeyID == "" {
+		if t.Key == nil {
 			return "", nil
 		}
 		jsonBytes, err := t.MarshalJSON()
 		if err != nil {
-			return nil, err
+			return "", err
 		}
 		return string(jsonBytes), nil
 	case core.AcmeStatus:
