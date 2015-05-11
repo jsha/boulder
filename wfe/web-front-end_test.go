@@ -6,9 +6,10 @@
 package wfe
 
 import (
+	"crypto/rand"
+	"crypto/rsa"
 	"crypto/x509"
 	"encoding/json"
-	"fmt"
 	"io"
 	"io/ioutil"
 	"net/http"
@@ -31,23 +32,12 @@ func makeBody(s string) io.ReadCloser {
 }
 
 func signRequest(t *testing.T, req string) string {
-	fmt.Println("burp")
-	accountKeyJSON := []byte(`{
-		"kty": "EC",
-		"crv": "P-521",
-		"x": "AHKZLLOsCOzz5cY97ewNUajB957y-C-U88c3v13nmGZx6sYl_oJXu9A5RkTKqjqvjyekWF-7ytDyRXYgCF5cj0Kt",
-		"y": "AdymlHvOiLxXkEhayXQnNCvDX4h9htZaCJN34kfmC6pV5OhQHiraVySsUdaQkAgDPrwQrJmbnX9cwlGfP-HqHZR1"
-	}`)
-	accountKey := jose.JsonWebKey{}
-
-	err := json.Unmarshal(accountKeyJSON, &accountKey)
-	test.AssertNotError(t, err, "Failed to unmarshall JWK")
+	accountKey, _ := rsa.GenerateKey(rand.Reader, 2048)
 	signer, err := jose.NewSigner("RS256", accountKey)
 	test.AssertNotError(t, err, "Failed to make signer")
 	result, err := signer.Sign([]byte(req))
 	test.AssertNotError(t, err, "Failed to sign req")
 	ret := result.FullSerialize()
-	fmt.Println("Ret ", ret)
 	return ret
 }
 
@@ -217,6 +207,7 @@ func TestIssueCertificate(t *testing.T) {
 type MockRegistrationAuthority struct{}
 
 func (ra *MockRegistrationAuthority) NewRegistration(reg core.Registration, jwk jose.JsonWebKey) (core.Registration, error) {
+	reg.Key = jwk
 	return reg, nil
 }
 
