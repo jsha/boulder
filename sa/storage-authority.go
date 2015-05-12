@@ -57,16 +57,16 @@ type boulderTypeConverter struct{}
 
 func (tc boulderTypeConverter) ToDb(val interface{}) (interface{}, error) {
 	switch t := val.(type) {
-	case core.AcmeIdentifier, []core.Challenge, []core.AcmeURL, [][]int, core.JsonBuffer:
+	case core.AcmeIdentifier, []core.Challenge, []core.AcmeURL, [][]int:
 		jsonBytes, err := json.Marshal(t)
 		if err != nil {
 			return nil, err
 		}
 		return string(jsonBytes), nil
 	case jose.JsonWebKey:
-		// XXX hack: Some of our storage methods, like NewAuthorization, expect to
+		// HACK: Some of our storage methods, like NewAuthorization, expect to
 		// write to the DB with the default, empty key, so we treat it specially,
-		// deserializing to a nil key pointer. TODO: Modify authorizations to refer
+		// serializing to an empty string. TODO: Modify authorizations to refer
 		// to a registration id, and make sure registration ids are always filled.
 		if t.Key == nil {
 			return "", nil
@@ -108,9 +108,9 @@ func (tc boulderTypeConverter) FromDb(target interface{}) (gorp.CustomScanner, b
 			if *s != "" {
 				return k.UnmarshalJSON(b)
 			} else {
-				// XXX HACK: Sometimes we can have an empty string the in the DB where a
-				// key should be. We should fix that. In the meantime, return the
-				// default JsonWebKey in such situations.
+				// HACK: Sometimes we can have an empty string the in the DB where a
+				// key should be. We should fix that (see HACK above). In the meantime,
+				// return the default JsonWebKey in such situations.
 				return nil
 			}
 		}
