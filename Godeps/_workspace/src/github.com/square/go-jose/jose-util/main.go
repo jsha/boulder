@@ -17,7 +17,6 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
 	"io/ioutil"
 	"os"
@@ -93,7 +92,7 @@ func main() {
 		},
 		{
 			Name:  "decrypt",
-			Usage: "decrypt a plaintext",
+			Usage: "decrypt a ciphertext",
 			Flags: []cli.Flag{
 				cli.StringFlag{
 					Name:  "key, k",
@@ -125,8 +124,91 @@ func main() {
 			},
 		},
 		{
-			Name:  "dump",
-			Usage: "parse & dump message in full serialization format",
+			Name:  "sign",
+			Usage: "sign a plaintext",
+			Flags: []cli.Flag{
+				cli.StringFlag{
+					Name:  "algorithm, alg",
+					Usage: "Signing algorithm (e.g. PS256)",
+				},
+				cli.StringFlag{
+					Name:  "key, k",
+					Usage: "Path to key file (PEM/DER)",
+				},
+				cli.StringFlag{
+					Name:  "input, in",
+					Usage: "Path to input file (stdin if missing)",
+				},
+				cli.StringFlag{
+					Name:  "output, out",
+					Usage: "Path to output file (stdout if missing)",
+				},
+				cli.BoolFlag{
+					Name:  "full, f",
+					Usage: "Use full serialization format (instead of compact)",
+				},
+			},
+			Action: func(c *cli.Context) {
+				keyBytes, err := ioutil.ReadFile(requiredFlag(c, "key"))
+				exitOnError(err, "unable to read key file")
+
+				signingKey, err := jose.LoadPrivateKey(keyBytes)
+				exitOnError(err, "unable to read private key")
+
+				alg := jose.SignatureAlgorithm(requiredFlag(c, "algorithm"))
+				signer, err := jose.NewSigner(alg, signingKey)
+				exitOnError(err, "unable to make signer")
+
+				obj, err := signer.Sign(readInput(c.String("input")))
+				exitOnError(err, "unable to sign")
+
+				var msg string
+				if c.Bool("full") {
+					msg = obj.FullSerialize()
+				} else {
+					msg, err = obj.CompactSerialize()
+					exitOnError(err, "unable to serialize message")
+				}
+
+				writeOutput(c.String("output"), []byte(msg))
+			},
+		},
+		{
+			Name:  "verify",
+			Usage: "verify a signature",
+			Flags: []cli.Flag{
+				cli.StringFlag{
+					Name:  "key, k",
+					Usage: "Path to key file (PEM/DER)",
+				},
+				cli.StringFlag{
+					Name:  "input, in",
+					Usage: "Path to input file (stdin if missing)",
+				},
+				cli.StringFlag{
+					Name:  "output, out",
+					Usage: "Path to output file (stdout if missing)",
+				},
+			},
+			Action: func(c *cli.Context) {
+				keyBytes, err := ioutil.ReadFile(requiredFlag(c, "key"))
+				exitOnError(err, "unable to read key file")
+
+				verificationKey, err := jose.LoadPublicKey(keyBytes)
+				exitOnError(err, "unable to read private key")
+
+				obj, err := jose.ParseSigned(string(readInput(c.String("input"))))
+				exitOnError(err, "unable to parse message")
+
+				plaintext, err := obj.Verify(verificationKey)
+				exitOnError(err, "invalid signature")
+
+				writeOutput(c.String("output"), plaintext)
+			},
+		},
+		{
+			Name:  "expand",
+			Usage: "expand compact message to full format",
 			Flags: []cli.Flag{
 				cli.StringFlag{
 					Name:  "input, in",
@@ -161,16 +243,8 @@ func main() {
 					}
 				}
 
-				exitOnError(err, "unable to parse message")
-
-				var raw map[string]interface{}
-				err = json.Unmarshal([]byte(serialized), &raw)
-				exitOnError(err, "unable to parse message")
-
-				output, err := json.MarshalIndent(&raw, "", "\t")
-				exitOnError(err, "unable to serialize message")
-
-				writeOutput(c.String("output"), output)
+				exitOnError(err, "unable to expand message")
+				writeOutput(c.String("output"), []byte(serialized))
 			},
 		},
 	}
