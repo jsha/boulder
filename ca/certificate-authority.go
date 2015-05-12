@@ -34,7 +34,7 @@ type Config struct {
 	DBDriver     string
 	DBName       string
 	SerialPrefix int
-	// A PEM-encoded copy of the issuer certificate.
+	// Path to a PEM-encoded copy of the issuer certificate.
 	IssuerCert string
 	// This field is only allowed if TestMode is true, indicating that we are
 	// signing with a local key. In production we will use an HSM and this
@@ -68,8 +68,8 @@ func NewCertificateAuthorityImpl(cadb core.CertificateAuthorityDatabase, config 
 	logger := blog.GetAuditLogger()
 	logger.Notice("Certificate Authority Starting")
 
-	if config.SerialPrefix == 0 {
-		err = errors.New("Must have non-zero serial prefix for CA.")
+	if config.SerialPrefix <= 0 || config.SerialPrefix >= 256 {
+		err = errors.New("Must have a positive non-zero serial prefix less than 256 for CA.")
 		return nil, err
 	}
 
@@ -152,6 +152,17 @@ func loadIssuerKey(filename string) (issuerKey crypto.Signer, err error) {
 	return
 }
 
+func dupeNames(names []string) bool {
+	nameMap := make(map[string]int, len(names))
+	for _, name := range names {
+		nameMap[name] = 1
+	}
+	if len(names) != len(nameMap) {
+		return true
+	}
+	return false
+}
+
 func (ca *CertificateAuthorityImpl) RevokeCertificate(serial string) (err error) {
 	certDER, err := ca.SA.GetCertificate(serial)
 	if err != nil {
@@ -195,6 +206,12 @@ func (ca *CertificateAuthorityImpl) IssueCertificate(csr x509.CertificateRequest
 		commonName = hostNames[0]
 	} else {
 		err = errors.New("Cannot issue a certificate without a hostname.")
+		ca.log.WarningErr(err)
+		return emptyCert, err
+	}
+
+	if dupeNames(hostNames) {
+		err = errors.New("Cannot issue a certificate with duplicate DNS names.")
 		ca.log.WarningErr(err)
 		return emptyCert, err
 	}

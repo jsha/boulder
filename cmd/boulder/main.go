@@ -89,6 +89,10 @@ func main() {
 		wfe.SA = sa
 		wfe.CA = ca
 		wfe.Stats = stats
+
+		wfe.IssuerCert, err = cmd.LoadCert(c.CA.IssuerCert)
+		cmd.FailOnError(err, fmt.Sprintf("Couldn't read issuer cert [%s]", c.CA.IssuerCert))
+
 		ra.CA = ca
 		ra.SA = sa
 		ra.VA = &va

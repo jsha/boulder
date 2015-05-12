@@ -44,8 +44,12 @@ type WebFrontEndImpl struct {
 	NewCertPath    string
 	CertBase       string
 	CertPath       string
-	RevokeCertPath string
 	TermsPath      string
+	RevokeCertPath string
+	IssuerPath     string
+
+	// Issuer certificate (DER) for /acme/issuer-cert
+	IssuerCert []byte
 }
 
 func NewWebFrontEndImpl() WebFrontEndImpl {
@@ -59,8 +63,9 @@ func NewWebFrontEndImpl() WebFrontEndImpl {
 		AuthzPath:      "/acme/authz/",
 		NewCertPath:    "/acme/new-cert",
 		CertPath:       "/acme/cert/",
-		RevokeCertPath: "/acme/revoke-cert/",
 		TermsPath:      "/terms",
+		RevokeCertPath: "/acme/revoke-cert/",
+		IssuerPath:     "/acme/issuer-cert",
 	}
 }
 
@@ -81,6 +86,7 @@ func (wfe *WebFrontEndImpl) HandlePaths() {
 	http.HandleFunc(wfe.CertPath, wfe.Certificate)
 	http.HandleFunc(wfe.RevokeCertPath, wfe.RevokeCertificate)
 	http.HandleFunc(wfe.TermsPath, wfe.Terms)
+	http.HandleFunc(wfe.IssuerPath, wfe.Issuer)
 }
 
 // Method implementations
@@ -164,14 +170,33 @@ func parseIDFromPath(path string) string {
 // Problem objects represent problem documents, which are
 // returned with HTTP error responses
 // https://tools.ietf.org/html/draft-ietf-appsawg-http-problem-00
+type ProblemType string
+
 type problem struct {
-	Type     string `json:"type,omitempty"`
-	Detail   string `json:"detail,omitempty"`
-	Instance string `json:"instance,omitempty"`
+	Type   ProblemType `json:"type,omitempty"`
+	Detail string      `json:"detail,omitempty"`
 }
+
+const (
+	MalformedProblem      = ProblemType("urn:acme:error:malformed")
+	UnauthorizedProblem   = ProblemType("urn:acme:error:unauthorized")
+	ServerInternalProblem = ProblemType("urn:acme:error:serverInternal")
+)
 
 func (wfe *WebFrontEndImpl) sendError(response http.ResponseWriter, message string, code int) {
 	problem := problem{Detail: message}
+	switch code {
+	case http.StatusForbidden:
+		problem.Type = UnauthorizedProblem
+	case http.StatusMethodNotAllowed:
+		fallthrough
+	case http.StatusNotFound:
+		fallthrough
+	case http.StatusBadRequest:
+		problem.Type = MalformedProblem
+	case http.StatusInternalServerError:
+		problem.Type = ServerInternalProblem
+	}
 	problemDoc, err := json.Marshal(problem)
 	if err != nil {
 		problemDoc = []byte("{\"detail\": \"Problem marshalling error message.\"}")
@@ -404,6 +429,7 @@ func (wfe *WebFrontEndImpl) NewCertificate(response http.ResponseWriter, request
 	// TODO The spec says a client should send an Accept: application/pkix-cert
 	// header; either explicitly insist or tolerate
 	response.Header().Add("Location", certURL)
+	response.Header().Add("Link", link(wfe.IssuerPath, "up"))
 	response.Header().Set("Content-Type", "application/pkix-cert")
 	response.WriteHeader(http.StatusCreated)
 	if _, err = response.Write(cert.DER); err != nil {
@@ -623,8 +649,8 @@ func (wfe *WebFrontEndImpl) Certificate(response http.ResponseWriter, request *h
 		}
 
 		// TODO: Content negotiation
-		// TODO: Link header
 		response.Header().Set("Content-Type", "application/pkix-cert")
+		response.Header().Add("Link", link(wfe.IssuerPath, "up"))
 		response.WriteHeader(http.StatusOK)
 		if _, err = response.Write(cert); err != nil {
 			wfe.log.Warning(fmt.Sprintf("Could not write response: %s", err))
@@ -640,4 +666,12 @@ func (wfe *WebFrontEndImpl) Certificate(response http.ResponseWriter, request *h
 
 func (wfe *WebFrontEndImpl) Terms(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, "You agree to do the right thing")
+}
+
+func (wfe *WebFrontEndImpl) Issuer(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/pkix-cert")
+	w.WriteHeader(http.StatusOK)
+	if _, err := w.Write(wfe.IssuerCert); err != nil {
+		wfe.log.Warning(fmt.Sprintf("Could not write response: %s", err))
+	}
 }
