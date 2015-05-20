@@ -23,7 +23,14 @@ npm install
 # Wait for Boulder to come up
 until nc localhost 4300 < /dev/null ; do sleep 1 ; done
 
-js test.js --email foo@bar.com --agree true --domain foo.com --new-reg http://localhost:4300/acme/new-reg
+CERT_KEY=`mktemp`
+CERT=`mktemp`
+
+js test.js --email foo@bar.com --agree true \
+  --domain foo.com --new-reg http://localhost:4300/acme/new-reg \
+  --certKey $CERT_KEY --cert $CERT && \
+js revoke.js $CERT $CERT_KEY http://localhost:4300/acme/revoke-cert/
+
 STATUS=$?
 
 kill_boulder
