@@ -18,12 +18,11 @@ import (
 	blog "github.com/letsencrypt/boulder/log"
 	"github.com/letsencrypt/boulder/policy"
 
-	"github.com/letsencrypt/boulder/Godeps/_workspace/src/github.com/cloudflare/cfssl/auth"
 	cfsslConfig "github.com/letsencrypt/boulder/Godeps/_workspace/src/github.com/cloudflare/cfssl/config"
 	"github.com/letsencrypt/boulder/Godeps/_workspace/src/github.com/cloudflare/cfssl/helpers"
 	cfsslOCSP "github.com/letsencrypt/boulder/Godeps/_workspace/src/github.com/cloudflare/cfssl/ocsp"
 	"github.com/letsencrypt/boulder/Godeps/_workspace/src/github.com/cloudflare/cfssl/signer"
-	"github.com/letsencrypt/boulder/Godeps/_workspace/src/github.com/cloudflare/cfssl/signer/remote"
+	"github.com/letsencrypt/boulder/Godeps/_workspace/src/github.com/cloudflare/cfssl/signer/universal"
 )
 
 // Config defines the JSON configuration file schema
@@ -80,23 +79,20 @@ func NewCertificateAuthorityImpl(cadb core.CertificateAuthorityDatabase, config 
 		return nil, err
 	}
 
-	// Create the remote signer
-	localProfile := cfsslConfig.SigningProfile{
-		Expiry:       time.Hour,     // BOGUS: Required by CFSSL, but not used
-		RemoteName:   config.Server, // BOGUS: Only used as a flag by CFSSL
-		RemoteServer: config.Server,
-		UseSerialSeq: true,
-	}
+	signerConfig, err := cfsslConfig.LoadFile("test/cfssl-config.json")
 
-	localProfile.Provider, err = auth.New(config.AuthKey, nil)
-	if err != nil {
-		return nil, err
+	signerRootConfig := universal.Root{
+		Config: map[string]string{
+			"pkcs11-module":   "",
+			"pkcs11-token":    "",
+			"pkcs11-label":    "",
+			"pkcs11-user-pin": "",
+			"cert-file":       config.IssuerCert,
+			"key-file":        config.IssuerKey,
+		},
+		ForceRemote: false,
 	}
-
-	signer, err := remote.NewSigner(&cfsslConfig.Signing{Default: &localProfile})
-	if err != nil {
-		return nil, err
-	}
+	signer, err := universal.NewSigner(signerRootConfig, signerConfig.Signing)
 
 	issuer, err := loadIssuer(issuerCert)
 	if err != nil {
