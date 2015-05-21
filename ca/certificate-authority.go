@@ -107,6 +107,20 @@ func NewCertificateAuthorityImpl(cadb core.CertificateAuthorityDatabase, config 
 		return nil, err
 	}
 
+	type mySigner struct {
+		publicKey crypto.PublicKey
+		cfsslSigner signer.Signer
+	}
+	func (s *mySigner) Sign(rand io.Reader, msg []byte, opts crypto.SignerOpts) (signature []byte, err error) {
+		return []byte{}, nil
+	}
+	func (s *mySigner) Public() PublicKey {
+		return s.publicKey
+	}
+	ms := mySigner{
+		publicKey: issuer.PublicKey
+		cfsslSigner: signer,
+	}
 	// Set up our OCSP signer. Note this calls for both the issuer cert and the
 	// OCSP signing cert, which are the same in our case.
 	ocspSigner, err := cfsslOCSP.NewSigner(issuer, issuer, issuerKey,
