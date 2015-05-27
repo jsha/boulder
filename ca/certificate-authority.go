@@ -12,6 +12,7 @@ import (
 	"errors"
 	"fmt"
 	"io/ioutil"
+	"io"
 	"time"
 
 	"github.com/letsencrypt/boulder/core"
@@ -62,6 +63,17 @@ type CertificateAuthorityImpl struct {
 	MaxNames       int
 }
 
+type mySigner struct {
+	publicKey crypto.PublicKey
+	cfsslSigner signer.Signer
+}
+func (s mySigner) Sign(rand io.Reader, msg []byte, opts crypto.SignerOpts) (signature []byte, err error) {
+	return []byte{}, nil
+}
+func (s mySigner) Public() crypto.PublicKey {
+	return s.publicKey
+}
+
 // NewCertificateAuthorityImpl creates a CA that talks to a remote CFSSL
 // instance.  (To use a local signer, simply instantiate CertificateAuthorityImpl
 // directly.)  Communications with the CA are authenticated with MACs,
@@ -107,18 +119,8 @@ func NewCertificateAuthorityImpl(cadb core.CertificateAuthorityDatabase, config 
 		return nil, err
 	}
 
-	type mySigner struct {
-		publicKey crypto.PublicKey
-		cfsslSigner signer.Signer
-	}
-	func (s *mySigner) Sign(rand io.Reader, msg []byte, opts crypto.SignerOpts) (signature []byte, err error) {
-		return []byte{}, nil
-	}
-	func (s *mySigner) Public() PublicKey {
-		return s.publicKey
-	}
 	ms := mySigner{
-		publicKey: issuer.PublicKey
+		publicKey: issuer.PublicKey,
 		cfsslSigner: signer,
 	}
 	// Set up our OCSP signer. Note this calls for both the issuer cert and the
