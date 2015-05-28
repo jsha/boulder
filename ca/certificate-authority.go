@@ -22,6 +22,8 @@ import (
 	cfsslConfig "github.com/letsencrypt/boulder/Godeps/_workspace/src/github.com/cloudflare/cfssl/config"
 	"github.com/letsencrypt/boulder/Godeps/_workspace/src/github.com/cloudflare/cfssl/helpers"
 	cfsslOCSP "github.com/letsencrypt/boulder/Godeps/_workspace/src/github.com/cloudflare/cfssl/ocsp"
+	ocspConfig "github.com/letsencrypt/boulder/Godeps/_workspace/src/github.com/cloudflare/cfssl/ocsp/config"
+	ocspUniversal "github.com/letsencrypt/boulder/Godeps/_workspace/src/github.com/cloudflare/cfssl/ocsp/universal"
 	"github.com/letsencrypt/boulder/Godeps/_workspace/src/github.com/cloudflare/cfssl/signer"
 	"github.com/letsencrypt/boulder/Godeps/_workspace/src/github.com/cloudflare/cfssl/signer/universal"
 )
@@ -111,22 +113,15 @@ func NewCertificateAuthorityImpl(cadb core.CertificateAuthorityDatabase, config 
 		return nil, err
 	}
 
-	// In test mode, load a private key from a file.
-	// TODO: This should rely on the CFSSL config, to make it easy to use a key
-	// from a file vs an HSM. https://github.com/letsencrypt/boulder/issues/163
-	issuerKey, err := loadIssuerKey(config.IssuerKey)
-	if err != nil {
-		return nil, err
-	}
-
-	ms := mySigner{
-		publicKey: issuer.PublicKey,
-		cfsslSigner: signer,
+	ocspCfg := ocspConfig.Config{
+		CACertFile: config.IssuerCert,
+		ResponderCertFile: config.IssuerCert,
+		KeyFile: config.IssuerKey,
+		Interval: time.Hour,
 	}
 	// Set up our OCSP signer. Note this calls for both the issuer cert and the
 	// OCSP signing cert, which are the same in our case.
-	ocspSigner, err := cfsslOCSP.NewSigner(issuer, issuer, issuerKey,
-		time.Hour*24*4)
+	ocspSigner, err := ocspUniversal.NewSignerFromConfig(ocspCfg)
 	if err != nil {
 		return nil, err
 	}
