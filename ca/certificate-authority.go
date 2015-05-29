@@ -11,8 +11,8 @@ import (
 	"encoding/pem"
 	"errors"
 	"fmt"
-	"io/ioutil"
 	"io"
+	"io/ioutil"
 	"time"
 
 	"github.com/letsencrypt/boulder/core"
@@ -66,9 +66,10 @@ type CertificateAuthorityImpl struct {
 }
 
 type mySigner struct {
-	publicKey crypto.PublicKey
+	publicKey   crypto.PublicKey
 	cfsslSigner signer.Signer
 }
+
 func (s mySigner) Sign(rand io.Reader, msg []byte, opts crypto.SignerOpts) (signature []byte, err error) {
 	return []byte{}, nil
 }
@@ -114,10 +115,10 @@ func NewCertificateAuthorityImpl(cadb core.CertificateAuthorityDatabase, config 
 	}
 
 	ocspCfg := ocspConfig.Config{
-		CACertFile: config.IssuerCert,
+		CACertFile:        config.IssuerCert,
 		ResponderCertFile: config.IssuerCert,
-		KeyFile: config.IssuerKey,
-		Interval: time.Hour,
+		KeyFile:           config.IssuerKey,
+		Interval:          time.Hour,
 	}
 	// Set up our OCSP signer. Note this calls for both the issuer cert and the
 	// OCSP signing cert, which are the same in our case.
