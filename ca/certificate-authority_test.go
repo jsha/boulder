@@ -400,8 +400,11 @@ func TestFailNoSerial(t *testing.T) {
 
 func TestRevoke(t *testing.T) {
 	cadb, storageAuthority, caConfig := setup(t)
-	ca, err := NewCertificateAuthorityImpl(cadb, caConfig, caCertFile)
+	ca, err := NewCertificateAuthorityImpl(cadb, caConfig)
 	test.AssertNotError(t, err, "Failed to create CA")
+	if err != nil {
+		return
+	}
 	ca.SA = storageAuthority
 
 	csrDER, _ := hex.DecodeString(CN_AND_SAN_CSR_HEX)

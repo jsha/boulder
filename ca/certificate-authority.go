@@ -25,7 +25,7 @@ import (
 	ocspConfig "github.com/letsencrypt/boulder/Godeps/_workspace/src/github.com/cloudflare/cfssl/ocsp/config"
 	ocspUniversal "github.com/letsencrypt/boulder/Godeps/_workspace/src/github.com/cloudflare/cfssl/ocsp/universal"
 	"github.com/letsencrypt/boulder/Godeps/_workspace/src/github.com/cloudflare/cfssl/signer"
-	"github.com/letsencrypt/boulder/Godeps/_workspace/src/github.com/cloudflare/cfssl/signer/universal"
+	signerUniversal "github.com/letsencrypt/boulder/Godeps/_workspace/src/github.com/cloudflare/cfssl/signer/universal"
 )
 
 // Config defines the JSON configuration file schema
@@ -47,6 +47,7 @@ type Config struct {
 	Expiry string
 	// The maximum number of subjectAltNames in a single certificate
 	MaxNames int
+	CFSSL  cfsslConfig.Config
 }
 
 // CertificateAuthorityImpl represents a CA that signs certificates, CRLs, and
@@ -94,9 +95,8 @@ func NewCertificateAuthorityImpl(cadb core.CertificateAuthorityDatabase, config 
 		return nil, err
 	}
 
-	signerConfig, err := cfsslConfig.LoadFile("test/cfssl-config.json")
-
-	signerRootConfig := universal.Root{
+	signerConfig := config.CFSSL
+	signerRootConfig := signerUniversal.Root{
 		Config: map[string]string{
 			"pkcs11-module":   "",
 			"pkcs11-token":    "",
@@ -107,7 +107,10 @@ func NewCertificateAuthorityImpl(cadb core.CertificateAuthorityDatabase, config 
 		},
 		ForceRemote: false,
 	}
-	signer, err := universal.NewSigner(signerRootConfig, signerConfig.Signing)
+	signer, err := signerUniversal.NewSigner(signerRootConfig, signerConfig.Signing)
+	if err != nil {
+		return nil, err
+	}
 
 	issuer, err := loadIssuer(issuerCert)
 	if err != nil {

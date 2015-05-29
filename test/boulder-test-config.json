@@ -70,5 +70,51 @@
     "issuerCert": "test/test-ca.pem"
   },
 
-  "subscriberAgreementURL": "http://localhost:4300/terms"
+  "subscriberAgreementURL": "http://localhost:4300/terms",
+
+  "cfssl": {
+    "ocsp": {
+      "CACertFile": "test/test-ca.pem",
+      "ResponderCertFile": "test/test-ca.pem",
+      "KeyFile": "test/test-ca.key",
+      "interval": "96h"
+    },
+    "signing": {
+      "profiles": {
+        "ee": {
+          "usages": [
+            "digital signature",
+            "key encipherment",
+            "server auth"
+          ],
+          "backdate": "1h",
+          "is_ca": false,
+          "issuer_urls": [
+            "http://int-x1.letsencrypt.org/cert"
+          ],
+          "ocsp_url": "http://int-x1.letsencrypt.org/ocsp",
+          "crl_url": "http://int-x1.letsencrypt.org/crl",
+          "policies": [
+            "1.3.6.1.4.1.44947.1.1.1",
+            "2.23.140.1.2.1"
+          ],
+          "expiry": "8760h",
+          "auth_key": "ee",
+          "CSRWhitelist": {
+            "PublicKeyAlgorithm": true,
+            "PublicKey": true,
+            "SignatureAlgorithm": true
+          },
+          "UseSerialSeq": true
+        }
+      },
+      "default": {
+        "usages": [
+          "digital signature"
+        ],
+        "expiry": "8760h",
+        "auth_key": "ee"
+      }
+    }
+  }
 }
