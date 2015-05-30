@@ -9,9 +9,9 @@ import (
 	"crypto"
 	"crypto/x509"
 	"encoding/pem"
+	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"io/ioutil"
 	"time"
 
@@ -22,7 +22,6 @@ import (
 	cfsslConfig "github.com/letsencrypt/boulder/Godeps/_workspace/src/github.com/cloudflare/cfssl/config"
 	"github.com/letsencrypt/boulder/Godeps/_workspace/src/github.com/cloudflare/cfssl/helpers"
 	cfsslOCSP "github.com/letsencrypt/boulder/Godeps/_workspace/src/github.com/cloudflare/cfssl/ocsp"
-	ocspConfig "github.com/letsencrypt/boulder/Godeps/_workspace/src/github.com/cloudflare/cfssl/ocsp/config"
 	ocspUniversal "github.com/letsencrypt/boulder/Godeps/_workspace/src/github.com/cloudflare/cfssl/ocsp/universal"
 	"github.com/letsencrypt/boulder/Godeps/_workspace/src/github.com/cloudflare/cfssl/signer"
 	signerUniversal "github.com/letsencrypt/boulder/Godeps/_workspace/src/github.com/cloudflare/cfssl/signer/universal"
@@ -30,8 +29,6 @@ import (
 
 // Config defines the JSON configuration file schema
 type Config struct {
-	Server       string
-	AuthKey      string
 	Profile      string
 	TestMode     bool
 	DBDriver     string
@@ -66,18 +63,6 @@ type CertificateAuthorityImpl struct {
 	MaxNames       int
 }
 
-type mySigner struct {
-	publicKey   crypto.PublicKey
-	cfsslSigner signer.Signer
-}
-
-func (s mySigner) Sign(rand io.Reader, msg []byte, opts crypto.SignerOpts) (signature []byte, err error) {
-	return []byte{}, nil
-}
-func (s mySigner) Public() crypto.PublicKey {
-	return s.publicKey
-}
-
 // NewCertificateAuthorityImpl creates a CA that talks to a remote CFSSL
 // instance.  (To use a local signer, simply instantiate CertificateAuthorityImpl
 // directly.)  Communications with the CA are authenticated with MACs,
@@ -95,19 +80,29 @@ func NewCertificateAuthorityImpl(cadb core.CertificateAuthorityDatabase, config 
 		return nil, err
 	}
 
-	signerConfig := config.CFSSL
+	// CFSSL requires processing JSON configs through its own LoadConfig, so we
+	// serialize and then deserialize.
+	cfsslJSON, err := json.Marshal(config.CFSSL)
+	if err != nil {
+		return nil, err
+	}
+	fmt.Println(string(cfsslJSON))
+	cfsslConfigObj, err := cfsslConfig.LoadConfig(cfsslJSON)
+	if err != nil {
+		return nil, err
+	}
+
 	signerRootConfig := signerUniversal.Root{
 		Config: map[string]string{
-			"pkcs11-module":   "",
-			"pkcs11-token":    "",
-			"pkcs11-label":    "",
-			"pkcs11-user-pin": "",
 			"cert-file":       config.IssuerCert,
+			// NOTE: Instead of IssuerKey, you can specify these fields
+			// for PKCS#11 mode: pkcs11-{module,token,label,user-pin}.
+			// TODO: Allow specifying PKCS#11 parameters in config.
 			"key-file":        config.IssuerKey,
 		},
 		ForceRemote: false,
 	}
-	signer, err := signerUniversal.NewSigner(signerRootConfig, signerConfig.Signing)
+	signer, err := signerUniversal.NewSigner(signerRootConfig, cfsslConfigObj.Signing)
 	if err != nil {
 		return nil, err
 	}
@@ -117,15 +112,9 @@ func NewCertificateAuthorityImpl(cadb core.CertificateAuthorityDatabase, config 
 		return nil, err
 	}
 
-	ocspCfg := ocspConfig.Config{
-		CACertFile:        config.IssuerCert,
-		ResponderCertFile: config.IssuerCert,
-		KeyFile:           config.IssuerKey,
-		Interval:          time.Hour,
-	}
 	// Set up our OCSP signer. Note this calls for both the issuer cert and the
 	// OCSP signing cert, which are the same in our case.
-	ocspSigner, err := ocspUniversal.NewSignerFromConfig(ocspCfg)
+	ocspSigner, err := ocspUniversal.NewSignerFromConfig(*cfsslConfigObj.OCSP)
 	if err != nil {
 		return nil, err
 	}

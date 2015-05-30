@@ -379,8 +379,6 @@ func setup(t *testing.T) (cadb core.CertificateAuthorityDatabase, storageAuthori
 	// Create a CA
 	// Uncomment to test with a remote signer
 	caConfig = Config{
-		Server:       hostPort,
-		AuthKey:      authKey,
 		Profile:      profileName,
 		SerialPrefix: 17,
 		IssuerKey:    "../test/test-ca.key",

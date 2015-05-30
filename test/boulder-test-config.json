@@ -35,8 +35,6 @@
   },
 
   "ca": {
-    "server": "localhost:9300",
-    "authKey": "79999d86250c367a2b517a1ae7d409c1",
     "serialPrefix": 255,
     "profile": "ee",
     "dbDriver": "sqlite3",
@@ -45,7 +43,49 @@
     "_comment": "This should only be present in testMode. In prod use an HSM.",
     "issuerKey": "test/test-ca.key",
     "expiry": "2160h",
-    "maxNames": 1000
+    "maxNames": 1000,
+    "cfssl": {
+      "ocsp": {
+        "CACertFile": "test/test-ca.pem",
+        "ResponderCertFile": "test/test-ca.pem",
+        "KeyFile": "test/test-ca.key"
+      },
+      "signing": {
+        "profiles": {
+          "ee": {
+            "usages": [
+              "digital signature",
+              "key encipherment",
+              "server auth"
+            ],
+            "backdate": "1h",
+            "is_ca": false,
+            "issuer_urls": [
+              "http://int-x1.letsencrypt.org/cert"
+            ],
+            "ocsp_url": "http://int-x1.letsencrypt.org/ocsp",
+            "crl_url": "http://int-x1.letsencrypt.org/crl",
+            "policies": [
+              "1.3.6.1.4.1.44947.1.1.1",
+              "2.23.140.1.2.1"
+            ],
+            "expiry": "8760h",
+            "CSRWhitelist": {
+              "PublicKeyAlgorithm": true,
+              "PublicKey": true,
+              "SignatureAlgorithm": true
+            },
+            "UseSerialSeq": true
+          }
+        },
+        "default": {
+          "usages": [
+            "digital signature"
+          ],
+          "expiry": "8760h"
+        }
+      }
+    }
   },
 
   "sa": {
@@ -54,8 +94,19 @@
   },
 
   "sql": {
-    "SQLDebug": false,
+    "SQLDebug": true,
     "CreateTables": true
+  },
+
+  "revoker": {
+    "dbDriver": "sqlite3",
+    "dbName": ":memory:"
+  },
+
+  "ocsp": {
+    "dbDriver": "sqlite3",
+    "dbName": ":memory:",
+    "minTimeToExpiry": "72h"
   },
 
   "mail": {
@@ -70,51 +121,5 @@
     "issuerCert": "test/test-ca.pem"
   },
 
-  "subscriberAgreementURL": "http://localhost:4300/terms",
-
-  "cfssl": {
-    "ocsp": {
-      "CACertFile": "test/test-ca.pem",
-      "ResponderCertFile": "test/test-ca.pem",
-      "KeyFile": "test/test-ca.key",
-      "interval": "96h"
-    },
-    "signing": {
-      "profiles": {
-        "ee": {
-          "usages": [
-            "digital signature",
-            "key encipherment",
-            "server auth"
-          ],
-          "backdate": "1h",
-          "is_ca": false,
-          "issuer_urls": [
-            "http://int-x1.letsencrypt.org/cert"
-          ],
-          "ocsp_url": "http://int-x1.letsencrypt.org/ocsp",
-          "crl_url": "http://int-x1.letsencrypt.org/crl",
-          "policies": [
-            "1.3.6.1.4.1.44947.1.1.1",
-            "2.23.140.1.2.1"
-          ],
-          "expiry": "8760h",
-          "auth_key": "ee",
-          "CSRWhitelist": {
-            "PublicKeyAlgorithm": true,
-            "PublicKey": true,
-            "SignatureAlgorithm": true
-          },
-          "UseSerialSeq": true
-        }
-      },
-      "default": {
-        "usages": [
-          "digital signature"
-        ],
-        "expiry": "8760h",
-        "auth_key": "ee"
-      }
-    }
-  }
+  "subscriberAgreementURL": "http://localhost:4300/terms"
 }
