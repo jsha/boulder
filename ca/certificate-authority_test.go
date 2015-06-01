@@ -7,22 +7,17 @@ package ca
 
 import (
 	"bytes"
-	"crypto"
 	"crypto/x509"
 	"encoding/asn1"
 	"encoding/hex"
 	"fmt"
 	"io/ioutil"
-	"net/http"
 	"os"
 	"testing"
 	"time"
 
-	apisign "github.com/letsencrypt/boulder/Godeps/_workspace/src/github.com/cloudflare/cfssl/api/sign"
-	"github.com/letsencrypt/boulder/Godeps/_workspace/src/github.com/cloudflare/cfssl/auth"
 	cfsslConfig "github.com/letsencrypt/boulder/Godeps/_workspace/src/github.com/cloudflare/cfssl/config"
-	"github.com/letsencrypt/boulder/Godeps/_workspace/src/github.com/cloudflare/cfssl/helpers"
-	"github.com/letsencrypt/boulder/Godeps/_workspace/src/github.com/cloudflare/cfssl/signer/local"
+	ocspConfig "github.com/letsencrypt/boulder/Godeps/_workspace/src/github.com/cloudflare/cfssl/ocsp/config"
 	_ "github.com/letsencrypt/boulder/Godeps/_workspace/src/github.com/mattn/go-sqlite3"
 	"github.com/letsencrypt/boulder/core"
 	"github.com/letsencrypt/boulder/sa"
@@ -284,57 +279,9 @@ var FarFuture = time.Date(2100, 1, 1, 0, 0, 0, 0, time.UTC)
 var FarPast = time.Date(1950, 1, 1, 0, 0, 0, 0, time.UTC)
 
 // CFSSL config
-const hostPort = "localhost:9000"
-const authKey = "79999d86250c367a2b517a1ae7d409c1"
 const profileName = "ee"
-const caKeyFile = "../test/test-ca.key"
-const caCertFile = "../test/test-ca.pem"
-
-var cfsslSigner *local.Signer
-var caKey crypto.PrivateKey
-var caCert x509.Certificate
 
 func TestMain(m *testing.M) {
-	caKeyPEM, _ := ioutil.ReadFile(caKeyFile)
-	caKey, _ := helpers.ParsePrivateKeyPEM(caKeyPEM)
-
-	caCertPEM, _ := ioutil.ReadFile(caCertFile)
-	caCert, _ := helpers.ParseCertificatePEM(caCertPEM)
-
-	// Create an online CFSSL instance
-	// This is designed to mimic what LE plans to do
-	authHandler, _ := auth.New(authKey, nil)
-	policy := &cfsslConfig.Signing{
-		Profiles: map[string]*cfsslConfig.SigningProfile{
-			profileName: &cfsslConfig.SigningProfile{
-				Usage:     []string{"server auth"},
-				CA:        false,
-				IssuerURL: []string{"http://not-example.com/issuer-url"},
-				OCSP:      "http://not-example.com/ocsp",
-				CRL:       "http://not-example.com/crl",
-
-				Policies: []asn1.ObjectIdentifier{
-					asn1.ObjectIdentifier{2, 23, 140, 1, 2, 1},
-				},
-				Expiry:   8760 * time.Hour,
-				Backdate: time.Hour,
-				Provider: authHandler,
-				CSRWhitelist: &cfsslConfig.CSRWhitelist{
-					PublicKeyAlgorithm: true,
-					PublicKey:          true,
-					SignatureAlgorithm: true,
-				},
-			},
-		},
-		Default: &cfsslConfig.SigningProfile{
-			Expiry: time.Hour,
-		},
-	}
-	cfsslSigner, _ = local.NewSigner(caKey, caCert, x509.SHA256WithRSA, policy)
-	signHandler, _ := apisign.NewAuthHandlerFromSigner(cfsslSigner)
-	http.Handle("/api/v1/cfssl/authsign", signHandler)
-	// This goroutine should get killed when main() return
-	go (func() { http.ListenAndServe(hostPort, nil) })()
 
 	os.Exit(m.Run())
 }
@@ -377,7 +324,6 @@ func setup(t *testing.T) (cadb core.CertificateAuthorityDatabase, storageAuthori
 	cadb, _ = NewMockCertificateAuthorityDatabase()
 
 	// Create a CA
-	// Uncomment to test with a remote signer
 	caConfig = Config{
 		Profile:      profileName,
 		SerialPrefix: 17,
@@ -385,6 +331,38 @@ func setup(t *testing.T) (cadb core.CertificateAuthorityDatabase, storageAuthori
 		TestMode:     true,
 		Expiry:       "8760h",
 		MaxNames:     2,
+		CFSSL: cfsslConfig.Config{
+			Signing: &cfsslConfig.Signing{
+				Profiles: map[string]*cfsslConfig.SigningProfile{
+					profileName: &cfsslConfig.SigningProfile{
+						Usage:     []string{"server auth"},
+						CA:        false,
+						IssuerURL: []string{"http://not-example.com/issuer-url"},
+						OCSP:      "http://not-example.com/ocsp",
+						CRL:       "http://not-example.com/crl",
+
+						Policies: []asn1.ObjectIdentifier{
+							asn1.ObjectIdentifier{2, 23, 140, 1, 2, 1},
+						},
+						ExpiryString: "8760h",
+						Backdate:     time.Hour,
+						CSRWhitelist: &cfsslConfig.CSRWhitelist{
+							PublicKeyAlgorithm: true,
+							PublicKey:          true,
+							SignatureAlgorithm: true,
+						},
+					},
+				},
+				Default: &cfsslConfig.SigningProfile{
+					ExpiryString: "8760h",
+				},
+			},
+			OCSP: &ocspConfig.Config{
+				CACertFile:        "../test/test-ca.pem",
+				ResponderCertFile: "../test/test-ca.pem",
+				KeyFile:           "../test/test-ca.key",
+			},
+		},
 	}
 	return cadb, storageAuthority, caConfig
 }

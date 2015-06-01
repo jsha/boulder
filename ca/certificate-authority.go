@@ -8,8 +8,8 @@ package ca
 import (
 	"crypto"
 	"crypto/x509"
-	"encoding/pem"
 	"encoding/json"
+	"encoding/pem"
 	"errors"
 	"fmt"
 	"io/ioutil"
@@ -86,7 +86,6 @@ func NewCertificateAuthorityImpl(cadb core.CertificateAuthorityDatabase, config 
 	if err != nil {
 		return nil, err
 	}
-	fmt.Println(string(cfsslJSON))
 	cfsslConfigObj, err := cfsslConfig.LoadConfig(cfsslJSON)
 	if err != nil {
 		return nil, err
@@ -94,11 +93,11 @@ func NewCertificateAuthorityImpl(cadb core.CertificateAuthorityDatabase, config 
 
 	signerRootConfig := signerUniversal.Root{
 		Config: map[string]string{
-			"cert-file":       config.IssuerCert,
+			"cert-file": config.IssuerCert,
 			// NOTE: Instead of IssuerKey, you can specify these fields
 			// for PKCS#11 mode: pkcs11-{module,token,label,user-pin}.
 			// TODO: Allow specifying PKCS#11 parameters in config.
-			"key-file":        config.IssuerKey,
+			"key-file": config.IssuerKey,
 		},
 		ForceRemote: false,
 	}
