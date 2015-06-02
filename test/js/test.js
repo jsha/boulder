@@ -299,7 +299,7 @@ function getTerms(err, resp) {
 function getAgreement(err, resp, body) {
   if (err) {
     console.log("getAgreement error:", err);
-    process.exit(1);
+    //process.exit(1);
   }
   // TODO: Check content-type
   console.log("The CA requires your agreement to terms.");

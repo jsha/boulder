@@ -4,6 +4,7 @@ package pkcs11
 
 import (
 	"io/ioutil"
+	"fmt"
 
 	"github.com/letsencrypt/boulder/Godeps/_workspace/src/github.com/cloudflare/cfssl/config"
 	"github.com/letsencrypt/boulder/Godeps/_workspace/src/github.com/cloudflare/cfssl/crypto/pkcs11key"
@@ -29,12 +30,14 @@ const Enabled = true
 // New returns a new PKCS #11 signer.
 func New(caCertFile string, policy *config.Signing, cfg *Config) (signer.Signer, error) {
 	if cfg == nil {
+		fmt.Println("A")
 		return nil, errors.New(errors.PrivateKeyError, errors.ReadFailed)
 	}
 
 	log.Debugf("Loading PKCS #11 module %s", cfg.Module)
 	certData, err := ioutil.ReadFile(caCertFile)
 	if err != nil {
+		fmt.Println("B")
 		return nil, errors.New(errors.PrivateKeyError, errors.ReadFailed)
 	}
 
@@ -45,6 +48,7 @@ func New(caCertFile string, policy *config.Signing, cfg *Config) (signer.Signer,
 
 	priv, err := pkcs11key.New(cfg.Module, cfg.Token, cfg.PIN, cfg.Label)
 	if err != nil {
+		fmt.Println("C")
 		return nil, errors.New(errors.PrivateKeyError, errors.ReadFailed)
 	}
 	sigAlgo := signer.DefaultSigAlgo(priv)

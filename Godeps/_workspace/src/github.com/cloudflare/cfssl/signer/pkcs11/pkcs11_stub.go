@@ -3,6 +3,7 @@
 package pkcs11
 
 import (
+	"fmt"
 	"github.com/letsencrypt/boulder/Godeps/_workspace/src/github.com/cloudflare/cfssl/config"
 	"github.com/letsencrypt/boulder/Godeps/_workspace/src/github.com/cloudflare/cfssl/errors"
 	"github.com/letsencrypt/boulder/Godeps/_workspace/src/github.com/cloudflare/cfssl/signer"
@@ -20,6 +21,7 @@ type Config struct {
 // New always returns an error. If PKCS #11 support is needed, the
 // program should be built with the `pkcs11` build tag.
 func New(caCertFile string, policy *config.Signing, cfg *Config) (signer.Signer, error) {
+		fmt.Println("Z")
 	return nil, errors.New(errors.PrivateKeyError, errors.Unknown)
 }
 
