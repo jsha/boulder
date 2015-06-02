@@ -99,7 +99,7 @@ func NewCertificateAuthorityImpl(cadb core.CertificateAuthorityDatabase, config 
 			// TODO: Allow specifying PKCS#11 parameters in config.
 			"pkcs11-module": "/usr/lib/x86_64-linux-gnu/opensc-pkcs11.so",
 			"pkcs11-token": "Yubico Yubikey NEO OTP+CCID 00 00",
-			"pkcs11-label": "PIV_II (PIV Card Holder pin)",
+			"pkcs11-label": "SIGN key",
 			"pkcs11-user-pin": "3839",
 			//"key-file": config.IssuerKey,
 		},
