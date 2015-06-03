@@ -6,6 +6,7 @@ This is an initial implementation of an ACME-based CA. The [ACME protocol](https
 
 [![Build Status](https://travis-ci.org/letsencrypt/boulder.svg)](https://travis-ci.org/letsencrypt/boulder)
 [![Coverage Status](https://coveralls.io/repos/letsencrypt/boulder/badge.svg)](https://coveralls.io/r/letsencrypt/boulder)
+[![Docker Repository on Quay.io](https://quay.io/repository/letsencrypt/boulder/status "Docker Repository on Quay.io")](https://quay.io/repository/letsencrypt/boulder)
 
 Docker
 ------
@@ -14,13 +15,7 @@ Boulder is available as a [Docker image from Quay.io](https://quay.io/repository
 
 (Note: You can override the `config.json` location by specifying a different BOULDER_CONFIG environment variable, such as with `-e BOULDER_CONFIG=mypath/myfile.config`.)
 
-There are no default commands; you must choose one of the executables from the `cmd` path.
-
-There are several tags available:
- - `stable` is maintained by the Let's Encrypt team as a fairly stable copy of Boulder.
- - `latest` is a more recent build of Boulder. It may lag behind the `master` ref, as automated builds are being reworked.
- - Tags for individual short-format git refs, representing those builds.
-
+The default command is the monolithic "boulder" executable, which does not require an AMQP service.
 
 A quick-start method for running a Boulder instance is to use one of the example configurations:
 
@@ -33,25 +28,23 @@ A quick-start method for running a Boulder instance is to use one of the example
 To run a single module, specifying the AMQP server, you might use something more like:
 
 ```
-> docker run --name=boulder --read-only=true --rm=true -v $(pwd)/.boulder-config:/boulder:ro quay.io/letsencrypt/boulder:stable boulder-ra
+> docker run --name=boulder --read-only=true --rm=true -v $(pwd)/.boulder-config:/boulder:ro quay.io/letsencrypt/boulder:latest boulder-ra
 ```
+
+The submodules are under the `cmd/` directory.
 
 
 Quickstart
 ----------
 
-Install RabbitMQ from https://rabbitmq.com/download.html. It's required to run
-tests.
-
 ```
 > go get github.com/letsencrypt/boulder # Ignore errors about no buildable files
 > cd $GOPATH/src/github.com/letsencrypt/boulder
-# This starts each Boulder component with test configs. Ctrl-C kills all.
-> python ./start.py
+# This starts both Boulder and cfssl with test configs. Ctrl-C kills both.
+> ./start.sh
 > cd test/js
 > npm install
 > nodejs test.js
-> ./test.sh
 ```
 
 You can also check out the official client from
@@ -101,11 +94,24 @@ All dependencies are vendorized under the Godeps directory,
 both to [make dependency management
 easier](https://groups.google.com/forum/m/#!topic/golang-dev/nMWoEAG55v8)
 and to [avoid insecure fallback in go
-get](https://github.com/golang/go/issues/9637). To update dependencies:
+get](https://github.com/golang/go/issues/9637).
+
+Unfortunately, we need to build with the tag 'pkcs11' in order for our CFSSL
+dependencies to build properly, and the mainline `godep` doesn't support tags.
+Fortunately, this branch does https://github.com/tools/godep/pull/117/files.
+
+To update dependencies:
 
 ```
 # Disable insecure fallback by blocking port 80.
 sudo /sbin/iptables -A OUTPUT -p tcp --dport 80 -j DROP
+# Fetch godep
+go get https://github.com/tools/godep.git
+# Pull in the tags branch and install
+cd $GOPATH/src/github.com/tools/godep
+git pull https://github.com/jnfeinstein/godep.git jnfeinstein
+go install
+
 # Update to the latest version of a dependency. Alternately you can cd to the
 # directory under GOPATH and check out a specific revision.
 go get -u github.com/cloudflare/cfssl/...
@@ -113,7 +119,7 @@ go get -u github.com/cloudflare/cfssl/...
 godep update github.com/cloudflare/cfssl/...
 # Save the dependencies, rewriting any internal or external dependencies that
 # may have been added.
-godep save -r ./...
+godep save -r -tags pkcs11 ./...
 git add Godeps
 git commit
 # Assuming you had no other iptables rules, re-enable port 80.
