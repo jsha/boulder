@@ -78,7 +78,7 @@ func New(module, slot, pin, privLabel string) (ps *PKCS11Key, err error) {
 
 	template := []*pkcs11.Attribute{
 		pkcs11.NewAttribute(pkcs11.CKA_CLASS, pkcs11.CKO_PRIVATE_KEY),
-		//pkcs11.NewAttribute(pkcs11.CKA_LABEL, privLabel),
+		pkcs11.NewAttribute(pkcs11.CKA_LABEL, privLabel),
 	}
 	if err = p.FindObjectsInit(session, template); err != nil {
 		ps.Destroy()

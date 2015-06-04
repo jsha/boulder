@@ -46,8 +46,8 @@
     "maxNames": 1000,
     "cfssl": {
       "ocsp": {
-        "CACertFile": "test/test-ca.pem",
-        "ResponderCertFile": "test/test-ca.pem",
+        "CACertFile": "/home/jsha/yubi-ca.pem",
+        "ResponderCertFile": "/home/jsha/yubi-ca.pem",
         "KeyFile": "test/test-ca.key"
       },
       "signing": {
@@ -125,7 +125,7 @@
 
   "common": {
     "baseURL": "http://localhost:4000",
-    "issuerCert": "test/test-ca.pem"
+    "issuerCert": "/home/jsha/yubi-ca.pem"
   },
 
   "subscriberAgreementURL": "https://letsencrypt.org/be-good"
