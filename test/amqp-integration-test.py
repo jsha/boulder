@@ -30,28 +30,11 @@ def run(path):
         ''' % binary, shell=True))
 
 def start():
-    # A strange Go bug: If cfssl is up-to-date, we'll get a failure building
-    # Boulder. Work around by touching cfssl.go.
-    subprocess.Popen('touch Godeps/_workspace/src/github.com/cloudflare/cfssl/cmd/cfssl/cfssl.go', shell=True).wait()
-    cmd = 'go build -o %s/cfssl ./Godeps/_workspace/src/github.com/cloudflare/cfssl/cmd/cfssl' % (tempdir)
-    print(cmd)
-    if subprocess.Popen(cmd, shell=True).wait() != 0:
-        die()
     run('./cmd/boulder-wfe')
     run('./cmd/boulder-ra')
     run('./cmd/boulder-sa')
     run('./cmd/boulder-ca')
     run('./cmd/boulder-va')
-
-    processes.append(subprocess.Popen('''
-    exec %s/cfssl \
-      -loglevel 0 \
-      serve \
-      -port 9300 \
-      -ca test/test-ca.pem \
-      -ca-key test/test-ca.key \
-      -config test/cfssl-config.json
-    ''' % tempdir, shell=True, stdout=None))
 
 def run_test():
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
