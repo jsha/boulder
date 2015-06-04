@@ -44,7 +44,7 @@ type Config struct {
 	Expiry string
 	// The maximum number of subjectAltNames in a single certificate
 	MaxNames int
-	CFSSL  cfsslConfig.Config
+	CFSSL    cfsslConfig.Config
 }
 
 // CertificateAuthorityImpl represents a CA that signs certificates, CRLs, and
@@ -93,7 +93,7 @@ func NewCertificateAuthorityImpl(cadb core.CertificateAuthorityDatabase, config 
 
 	signerRootConfig := signerUniversal.Root{
 		Config: map[string]string{
-			"cert-file": config.IssuerCert,
+			"cert-file": issuerCert,
 			// NOTE: Instead of IssuerKey, you can specify these fields
 			// for PKCS#11 mode: pkcs11-{module,token,label,user-pin}.
 			// TODO: Allow specifying PKCS#11 parameters in config.

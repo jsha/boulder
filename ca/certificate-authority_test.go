@@ -280,6 +280,8 @@ var FarPast = time.Date(1950, 1, 1, 0, 0, 0, 0, time.UTC)
 
 // CFSSL config
 const profileName = "ee"
+const caKeyFile = "../test/test-ca.key"
+const caCertFile = "../test/test-ca.pem"
 
 func TestMain(m *testing.M) {
 
@@ -327,7 +329,7 @@ func setup(t *testing.T) (cadb core.CertificateAuthorityDatabase, storageAuthori
 	caConfig = Config{
 		Profile:      profileName,
 		SerialPrefix: 17,
-		IssuerKey:    "../test/test-ca.key",
+		IssuerKey:    caKeyFile,
 		TestMode:     true,
 		Expiry:       "8760h",
 		MaxNames:     2,
@@ -358,9 +360,9 @@ func setup(t *testing.T) (cadb core.CertificateAuthorityDatabase, storageAuthori
 				},
 			},
 			OCSP: &ocspConfig.Config{
-				CACertFile:        "../test/test-ca.pem",
-				ResponderCertFile: "../test/test-ca.pem",
-				KeyFile:           "../test/test-ca.key",
+				CACertFile:        caCertFile,
+				ResponderCertFile: caCertFile,
+				KeyFile:           caKeyFile,
 			},
 		},
 	}
@@ -376,7 +378,7 @@ func TestFailNoSerial(t *testing.T) {
 
 func TestRevoke(t *testing.T) {
 	cadb, storageAuthority, caConfig := setup(t)
-	ca, err := NewCertificateAuthorityImpl(cadb, caConfig)
+	ca, err := NewCertificateAuthorityImpl(cadb, caConfig, caCertFile)
 	test.AssertNotError(t, err, "Failed to create CA")
 	if err != nil {
 		return
