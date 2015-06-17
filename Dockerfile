@@ -17,6 +17,7 @@ RUN apt-get update && \
     libltdl-dev \
     rsyslog \
     nodejs \
+    lsb-release \
     git-core && \
   apt-get clean && \
   rm -rf /var/lib/apt/lists/* \
@@ -30,8 +31,15 @@ EXPOSE 4000
 ENV BOULDER_CONFIG /go/src/github.com/letsencrypt/boulder/test/boulder-config.json
 
 # Get the Let's Encrypt client
-ENV LETSENCRYPT_PATH /letsencrypt
-RUN git clone https://www.github.com/letsencrypt/lets-encrypt-preview.git $LETSENCRYPT_PATH
+RUN git clone https://www.github.com/letsencrypt/lets-encrypt-preview.git /letsencrypt
+WORKDIR /letsencrypt
+RUN ./bootstrap/debian.sh && \
+  apt-get clean && \
+  rm -rf /var/lib/apt/lists/* \
+    /tmp/* \
+    /var/tmp/*
+RUN virtualenv --no-site-packages -p python2 venv && \
+  ./venv/bin/pip install -r requirements.txt -e .[dev,docs,testing]
 
 # Copy in the Boulder sources
 COPY . /go/src/github.com/letsencrypt/boulder
