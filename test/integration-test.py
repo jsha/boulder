@@ -28,7 +28,7 @@ boulder = subprocess.Popen('''
     exec %s/boulder --config test/boulder-test-config.json
     ''' % tempdir, shell=True)
 
-def run_test():
+def run_node_test():
     os.chdir('test/js')
 
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -56,8 +56,30 @@ def run_test():
     if revoke.wait() != 0:
         die()
 
+def run_client_tests():
+    letsencrypt_bin = os.path.join(os.environ.get("LETSENCRYPT_VENV") or '/letsencrypt/venv', 'bin', 'letsencrypt')
+
+    base_cmd = letsencrypt_bin + ''' \
+        --server http://localhost:4300/acme/new-reg \
+        --no-verify-ssl \
+        --dvsni-port 5001 \
+        --config-dir "$root/conf" \
+        --work-dir "$root/work" \
+        --text \
+        --agree-tos \
+        --email "" \
+        --domains le.wtf \
+        -vvvvvvv '''
+
+    client_run(base_cmd, '--domain foo.com auth')
+
+def client_run(base_cmd, cmd):
+    if subprocess.Popen(base_cmd + cmd, shell=True).wait() != 0:
+        die()
+
 try:
-    run_test()
+    run_node_test()
+    run_client_tests()
 except Exception as e:
     exit_status = 1
     print e
