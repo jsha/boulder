@@ -20,6 +20,8 @@ before_install:
   - go get github.com/golang/lint/golint
   - go get github.com/mattn/goveralls
   - go get github.com/modocache/gover
+  - mkdir -p $TRAVIS_BUILD_DIR $GOPATH/src/github.com/letsencrypt
+  - ln -s $TRAVIS_BUILD_DIR $GOPATH/src/github.com/letsencrypt/boulder
 
 script:
   - make -j4 # Travis has 2 cores per build instance
