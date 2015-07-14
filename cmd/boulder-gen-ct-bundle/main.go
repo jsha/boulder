@@ -161,7 +161,7 @@ func main() {
 				ctPool.AddCert(root)
 			}
 			ctOpts := x509.VerifyOptions{Roots: ctPool}
-			var validChain []*x509.Certificate
+			var lastValidChain []*x509.Certificate
 			fmt.Println("\tTesting chain validity with downloaded log root pool")
 			for i := range chain {
 				if len(chain)-i > 1 {
@@ -178,9 +178,9 @@ func main() {
 					break
 				}
 				fmt.Println(": Valid!")
-				validChain = chain[:len(chain)-i]
+				lastValidChain = chain[:len(chain)-i]
 			}
-			if len(validChain) == 0 {
+			if len(lastValidChain) == 0 {
 				fmt.Println("\n\t!! Couldn't construct any valid chains, this may mean you haven't   !!")
 				fmt.Println("\t!! provided the full chain or that this CT log doesn't contain a    !!")
 				fmt.Println("\t!! root certificates that chain those provided. In the case of the  !!")
@@ -188,9 +188,9 @@ func main() {
 				fmt.Println("\t!! your submissions will fail and be discarded.                     !!")
 				continue
 			}
-			fmt.Printf("\n\tBundle size for %s: %d\n", ctLog.URI, len(validChain))
-			if len(validChain) > maxLen {
-				maxLen = len(validChain)
+			fmt.Printf("\n\tBundle size for %s: %d\n", ctLog.URI, len(lastValidChain))
+			if len(lastValidChain) > maxLen {
+				maxLen = len(lastValidChain)
 			}
 		}
 
