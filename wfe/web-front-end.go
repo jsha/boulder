@@ -10,6 +10,7 @@ import (
 	"crypto/x509"
 	"database/sql"
 	"encoding/json"
+	"encoding/pem"
 	"errors"
 	"fmt"
 	"html/template"
@@ -587,6 +588,14 @@ func (wfe *WebFrontEndImpl) RevokeCertificate(response http.ResponseWriter, requ
 	}
 }
 
+func (wfe *WebFrontEndImpl) logCsrPem(cr core.CertificateRequest) {
+	pem := pem.EncodeToMemory(&pem.Block{
+		Type: "CERTIFICATE REQUEST",
+		Bytes: cr.Bytes,
+	})
+	wfe.log.AuditObject("Certificate request", string(pem))
+}
+
 // NewCertificate is used by clients to request the issuance of a cert for an
 // authorized identifier.
 func (wfe *WebFrontEndImpl) NewCertificate(response http.ResponseWriter, request *http.Request) {
@@ -622,6 +631,7 @@ func (wfe *WebFrontEndImpl) NewCertificate(response http.ResponseWriter, request
 		wfe.sendError(response, "Error unmarshaling certificate request", err, http.StatusBadRequest)
 		return
 	}
+	wfe.logCsrPem(init);
 	logEvent.Extra["Authorizations"] = init.Authorizations
 	logEvent.Extra["CSRDNSNames"] = init.CSR.DNSNames
 	logEvent.Extra["CSREmailAddresses"] = init.CSR.EmailAddresses
