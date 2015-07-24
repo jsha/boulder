@@ -32,6 +32,11 @@ def die(status):
     exit_status = status
     sys.exit(exit_status)
 
+def verify_ocsp_good(certFile):
+    pass
+
+def verify_ocsp_revoked(certFile):
+    pass
 
 def run_node_test():
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -46,18 +51,25 @@ def run_node_test():
     if subprocess.Popen('npm install', shell=True).wait() != 0:
         print("\n Installing NPM modules failed")
         die(ExitStatus.Error)
+    certFile = os.path.join(tempdir, "cert.der")
+    keyFile = os.path.join(tempdir, "key.pem")
     if subprocess.Popen('''
         node test.js --email foo@letsencrypt.org --agree true \
           --domains foo.com --new-reg http://localhost:4000/acme/new-reg \
-          --certKey %s/key.pem --cert %s/cert.der
-        ''' % (tempdir, tempdir), shell=True).wait() != 0:
+          --certKey %s --cert %s
+        ''' % (keyFile, certFile), shell=True).wait() != 0:
         print("\nIssuing failed")
         die(ExitStatus.NodeFailure)
+
+    verify_ocsp_good(certFile)
+
     if subprocess.Popen('''
-        node revoke.js %s/cert.der %s/key.pem http://localhost:4000/acme/revoke-cert
-        ''' % (tempdir, tempdir), shell=True).wait() != 0:
+        node revoke.js %s %s http://localhost:4000/acme/revoke-cert
+        ''' % (keyFile, certFile), shell=True).wait() != 0:
         print("\nRevoking failed")
         die(ExitStatus.NodeFailure)
+
+    verify_ocsp_good(certFile)
 
     return 0
 

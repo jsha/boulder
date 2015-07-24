@@ -31,7 +31,7 @@
   },
 
   "wfe": {
-    "listenAddress": "127.0.0.1:4300",
+    "listenAddress": "127.0.0.1:4000",
     "certCacheDuration": "6h",
     "certNoCacheExpirationWindow": "8765h",
     "indexCacheDuration": "24h",
@@ -42,8 +42,8 @@
   "ca": {
     "serialPrefix": 255,
     "profile": "ee",
-    "dbDriver": "sqlite3",
-    "dbConnect": ":memory:",
+    "dbDriver": "mysql",
+    "dbConnect": "jsha@tcp(localhost:3306)/boulder?parseTime=true",
     "debugAddr": "localhost:8001",
     "testMode": true,
     "_comment": "This should only be present in testMode. In prod use an HSM.",
@@ -109,8 +109,8 @@
   },
 
   "sa": {
-    "dbDriver": "sqlite3",
-    "dbConnect": ":memory:",
+    "dbDriver": "mysql",
+    "dbConnect": "jsha@tcp(localhost:3306)/boulder?parseTime=true",
     "debugAddr": "localhost:8003"
   },
 
@@ -131,8 +131,24 @@
     "password": "password"
   },
 
+  "ocspUpdater": {
+    "dbdriver": "mysql",
+    "dbConnect": "jsha@tcp(localhost:3306)/boulder?parseTime=true",
+    "debugAddr": "localhost:8005",
+    "minTimeToExpiry": "1h",
+    "responseLimit": 128
+  },
+
+  "ocspResponder": {
+    "dbdriver": "mysql",
+    "dbConnect": "jsha@tcp(localhost:3306)/boulder?parseTime=true",
+    "debugAddr": "localhost:8006",
+    "path": "/ocsp",
+    "listenAddress": "127.0.0.1:4010"
+  },
+
   "common": {
-    "baseURL": "http://localhost:4300",
+    "baseURL": "http://localhost:4000",
     "issuerCert": "test/test-ca.pem",
     "maxKeySize": 4096,
     "dnsResolver": "127.0.0.1:8053",

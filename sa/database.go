@@ -89,14 +89,14 @@ func (log *SQLLogger) Printf(format string, v ...interface{}) {
 func initTables(dbMap *gorp.DbMap) {
 	regTable := dbMap.AddTableWithName(core.Registration{}, "registrations").SetKeys(true, "ID")
 	regTable.SetVersionCol("LockCol")
-	regTable.ColMap("Key").SetMaxSize(1024).SetNotNull(true).SetUnique(true)
+	regTable.ColMap("Key").SetNotNull(true).SetUnique(true)
 
 	pendingAuthzTable := dbMap.AddTableWithName(pendingauthzModel{}, "pending_authz").SetKeys(false, "ID")
 	pendingAuthzTable.SetVersionCol("LockCol")
-	pendingAuthzTable.ColMap("Challenges").SetMaxSize(1536)
+	pendingAuthzTable.ColMap("Challenges")
 
 	authzTable := dbMap.AddTableWithName(authzModel{}, "authz").SetKeys(false, "ID")
-	authzTable.ColMap("Challenges").SetMaxSize(1536)
+	authzTable.ColMap("Challenges")
 
 	dbMap.AddTableWithName(core.Certificate{}, "certificates").SetKeys(false, "Serial")
 	dbMap.AddTableWithName(core.CertificateStatus{}, "certificateStatus").SetKeys(false, "Serial").SetVersionCol("LockCol")
