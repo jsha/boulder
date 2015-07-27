@@ -33,6 +33,11 @@ def die(status):
     sys.exit(exit_status)
 
 def verify_ocsp_good(certFile):
+    openssl_ocsp_cmd = ("""
+      openssl x509 -in %s -out %s.pem -inform der -outform pem;
+      openssl ocsp -no_nonce -issuer ../test-ca.pem -cert %s.pem -text -url http://localhost:4002
+    """ % (certFile, certFile, certFile))
+    subprocess.check_call(openssl_ocsp_cmd, shell=True)
     pass
 
 def verify_ocsp_revoked(certFile):
@@ -65,7 +70,7 @@ def run_node_test():
 
     if subprocess.Popen('''
         node revoke.js %s %s http://localhost:4000/acme/revoke-cert
-        ''' % (keyFile, certFile), shell=True).wait() != 0:
+        ''' % (certFile, keyFile), shell=True).wait() != 0:
         print("\nRevoking failed")
         die(ExitStatus.NodeFailure)
 
