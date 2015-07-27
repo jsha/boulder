@@ -142,7 +142,7 @@
     "dbDriver": "mysql",
     "dbConnect": "jsha@tcp(localhost:3306)/boulder?parseTime=true",
     "path": "/",
-    "listenAddress": "localhost:4001",
+    "listenAddress": "localhost:4002",
     "debugAddr": "localhost:8005"
   },
 
