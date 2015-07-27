@@ -89,7 +89,7 @@ func (log *SQLLogger) Printf(format string, v ...interface{}) {
 func initTables(dbMap *gorp.DbMap) {
 	regTable := dbMap.AddTableWithName(core.Registration{}, "registrations").SetKeys(true, "ID")
 	regTable.SetVersionCol("LockCol")
-	regTable.ColMap("Key").SetMaxSize(1024).SetNotNull(true).SetUnique(true)
+	regTable.ColMap("Key").SetMaxSize(1024).SetNotNull(true)
 
 	pendingAuthzTable := dbMap.AddTableWithName(pendingauthzModel{}, "pending_authz").SetKeys(false, "ID")
 	pendingAuthzTable.SetVersionCol("LockCol")
