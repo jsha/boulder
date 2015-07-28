@@ -11,11 +11,6 @@ sudo: required
 matrix:
   fast_finish: true
 
-# Only build pushes to the master branch (and PRs)
-branches:
-  only:
-    - master
-
 sudo: required
 
 before_install:
