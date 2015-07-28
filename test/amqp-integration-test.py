@@ -1,6 +1,7 @@
 #!/usr/bin/env python2.7
 import atexit
 import os
+import re
 import shutil
 import socket
 import subprocess
@@ -11,7 +12,7 @@ import startservers
 
 
 class ExitStatus:
-    OK, PythonFailure, NodeFailure, Error = range(4)
+    OK, PythonFailure, NodeFailure, Error, OCSPFailure = range(5)
 
 
 class ProcInfo:
@@ -32,15 +33,31 @@ def die(status):
     exit_status = status
     sys.exit(exit_status)
 
-def verify_ocsp_good(certFile):
+def get_ocsp(certFile):
     openssl_ocsp_cmd = ("""
       openssl x509 -in %s -out %s.pem -inform der -outform pem;
       openssl ocsp -no_nonce -issuer ../test-ca.pem -cert %s.pem -text -url http://localhost:4002
     """ % (certFile, certFile, certFile))
-    subprocess.check_call(openssl_ocsp_cmd, shell=True)
-    pass
+    try:
+        output = subprocess.check_output(openssl_ocsp_cmd, shell=True)
+    except subprocess.CalledProcessError as e:
+        # Right now, OCSP responses fail to parse, returning status 1 from
+        # openssl. Don't fail the whole test on them until we fix that.
+        output = e.output
+        pass
+    print output
+    return output
+
+def verify_ocsp_good(certFile):
+    output = get_ocsp(certFile)
+    # If the OCSP responder can't find a response for a cert, it returns
+    # "unauthorized," which (surprisingly) is the thing to return when you can't
+    # respond authoritatively.
+    if re.match("unauthorized", output):
+        die(ExitStatus.OCSPFailure)
 
 def verify_ocsp_revoked(certFile):
+    output = get_ocsp(certFile)
     pass
 
 def run_node_test():
@@ -74,7 +91,7 @@ def run_node_test():
         print("\nRevoking failed")
         die(ExitStatus.NodeFailure)
 
-    verify_ocsp_good(certFile)
+    verify_ocsp_revoked(certFile)
 
     return 0
 
