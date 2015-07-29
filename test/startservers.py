@@ -28,7 +28,7 @@ tempdir = tempfile.mkdtemp()
 def run(path):
     binary = os.path.join(tempdir, os.path.basename(path))
 
-    buildcmd = 'go build -o %s ./%s' % (binary, path)
+    buildcmd = 'GORACE="halt_on_error=1" go build -race -o %s ./%s' % (binary, path)
     print(buildcmd)
     subprocess.check_call(buildcmd, shell=True)
 
@@ -56,7 +56,6 @@ def start():
             'cmd/boulder-sa',
             'cmd/boulder-ca',
             'cmd/boulder-va',
-            'cmd/ocsp-responder',
             'test/dns-test-srv']:
         try:
             processes.append(run(prog))
