@@ -21,7 +21,6 @@ import (
 // AcmeStatus defines the state of a given authorization
 type AcmeStatus string
 
-
 // AcmeResource values identify different types of ACME resources
 type AcmeResource string
 
