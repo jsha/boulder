@@ -36,9 +36,10 @@ def die(status):
 def get_ocsp(certFile):
     openssl_ocsp_cmd = ("""
       openssl x509 -in %s -out %s.pem -inform der -outform pem;
-      openssl ocsp -no_nonce -issuer ../test-ca.pem -cert %s.pem -text -url http://localhost:4002
+      openssl ocsp -no_nonce -issuer ../test-ca.pem -cert %s.pem -url http://localhost:4002
     """ % (certFile, certFile, certFile))
     try:
+        print openssl_ocsp_cmd
         output = subprocess.check_output(openssl_ocsp_cmd, shell=True)
     except subprocess.CalledProcessError as e:
         # Right now, OCSP responses fail to parse, returning status 1 from
@@ -58,6 +59,8 @@ def verify_ocsp_good(certFile):
 
 def verify_ocsp_revoked(certFile):
     output = get_ocsp(certFile)
+    if not re.match("revoked", output):
+        die(ExitStatus.OCSPFailure)
     pass
 
 def run_node_test():
