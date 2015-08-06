@@ -198,9 +198,13 @@ function post(url, body, callback) {
   console.log(payload.blue);
   var req = request.post({
     url: url,
+    headers: {
+      'Content-Type': 'application/jose+json'
+      'Content-Length': signed.length
+    },
     encoding: null // Return body as buffer, needed for certificate response
   }, function(error, response, body) {
-    console.log(("HTTP/1.1 " + response.statusCode).yellow)
+    console.log(("HTTP/1.1 " + response.statusCode).yellow);
     Object.keys(response.headers).forEach(function(key) {
       var value = response.headers[key];
       var upcased = key.charAt(0).toUpperCase() + key.slice(1);

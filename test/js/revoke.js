@@ -47,7 +47,12 @@ function main() {
     var payload = JSON.stringify(jws);
     console.log(payload);
 
-    var req = request.post(revokeUrl, function(error, response) {
+    var req = request.post({
+      headers: {
+        'Content-Length': payload.length
+      },
+      url: revokeUrl
+    }, function(error, response) {
       if (error) {
         console.log('Error: ', error);
         process.exit(1);
