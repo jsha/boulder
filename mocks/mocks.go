@@ -158,6 +158,7 @@ func (mock *MockDNS) LookupMX(domain string) ([]string, time.Duration, error) {
 	return nil, 0, nil
 }
 
+// MockSA is a mock
 type MockSA struct {
 	authorizedDomains map[string]bool
 }
@@ -177,6 +178,7 @@ const (
 	agreementURL = "http://example.invalid/terms"
 )
 
+//GetRegistration is a mock
 func (sa *MockSA) GetRegistration(id int64) (core.Registration, error) {
 	if id == 100 {
 		// Tag meaning "Missing"
@@ -194,6 +196,7 @@ func (sa *MockSA) GetRegistration(id int64) (core.Registration, error) {
 	return core.Registration{ID: id, Key: parsedKey, Agreement: agreementURL}, nil
 }
 
+// GetRegistrationByKey is a mock
 func (sa *MockSA) GetRegistrationByKey(jwk jose.JsonWebKey) (core.Registration, error) {
 	var test1KeyPublic jose.JsonWebKey
 	var test2KeyPublic jose.JsonWebKey
@@ -213,6 +216,7 @@ func (sa *MockSA) GetRegistrationByKey(jwk jose.JsonWebKey) (core.Registration, 
 	return core.Registration{ID: 1, Key: test1KeyPublic, Agreement: agreementURL}, nil
 }
 
+// GetAuthorization is a mock
 func (sa *MockSA) GetAuthorization(id string) (core.Authorization, error) {
 	if id == "valid" {
 		exp := time.Now().AddDate(100, 0, 0)
@@ -221,6 +225,7 @@ func (sa *MockSA) GetAuthorization(id string) (core.Authorization, error) {
 	return core.Authorization{}, nil
 }
 
+// GetCertificate is a mock
 func (sa *MockSA) GetCertificate(serial string) (core.Certificate, error) {
 	// Serial ee == 238.crt
 	if serial == "000000000000000000000000000000ee" {
@@ -242,10 +247,12 @@ func (sa *MockSA) GetCertificate(serial string) (core.Certificate, error) {
 	}
 }
 
+// GetCertificateByShortSerial is a mock
 func (sa *MockSA) GetCertificateByShortSerial(serial string) (core.Certificate, error) {
 	return sa.GetCertificate("0000000000000000" + serial)
 }
 
+// GetCertificateStatus is a mock
 func (sa *MockSA) GetCertificateStatus(serial string) (core.CertificateStatus, error) {
 	// Serial ee == 238.crt
 	if serial == "000000000000000000000000000000ee" {
@@ -261,56 +268,69 @@ func (sa *MockSA) GetCertificateStatus(serial string) (core.CertificateStatus, e
 	}
 }
 
+// AlreadyDeniedCSR is a mock
 func (sa *MockSA) AlreadyDeniedCSR([]string) (bool, error) {
 	return false, nil
 }
 
+// AddCertificate is a mock
 func (sa *MockSA) AddCertificate(certDER []byte, regID int64) (digest string, err error) {
 	return
 }
 
+// FinalizeAuthorization is a mock
 func (sa *MockSA) FinalizeAuthorization(authz core.Authorization) (err error) {
 	return
 }
 
+// MarkCertificateRevoked is a mock
 func (sa *MockSA) MarkCertificateRevoked(serial string, ocspResponse []byte, reasonCode int) (err error) {
 	return
 }
 
+// UpdateOCSP is a mock
 func (sa *MockSA) UpdateOCSP(serial string, ocspResponse []byte) (err error) {
 	return
 }
 
+// NewPendingAuthorization is a mock
 func (sa *MockSA) NewPendingAuthorization(authz core.Authorization) (output core.Authorization, err error) {
 	return
 }
 
+// NewRegistration is a mock
 func (sa *MockSA) NewRegistration(reg core.Registration) (regR core.Registration, err error) {
 	return
 }
 
+// UpdatePendingAuthorization is a mock
 func (sa *MockSA) UpdatePendingAuthorization(authz core.Authorization) (err error) {
 	return
 }
 
+// UpdateRegistration is a mock
 func (sa *MockSA) UpdateRegistration(reg core.Registration) (err error) {
 	return
 }
 
+// GetSCTReceipts is a mock
 func (sa *MockSA) GetSCTReceipts(serial string) (scts []*core.SignedCertificateTimestamp, err error) {
 	return
 }
 
+// GetSCTReceipt  is a mock
 func (sa *MockSA) GetSCTReceipt(serial string, logID []byte) (sct *core.SignedCertificateTimestamp, err error) {
 	return
 }
 
+// AddSCTReceipt is a mock
 func (sa *MockSA) AddSCTReceipt(sct core.SignedCertificateTimestamp) (err error) {
 	return
 }
 
-func (sa *MockSA) GetLatestValidAuthorization(registrationId int64, identifier core.AcmeIdentifier) (authz core.Authorization, err error) {
-	if registrationId == 1 && identifier.Type == "dns" {
+// GetLatestValidAuthorization is a mock
+func (sa *MockSA) GetLatestValidAuthorization(registrationID int64, identifier core.AcmeIdentifier) (authz core.Authorization, err error) {
+	if registrationID == 1 && identifier.Type == "dns" {
 		if sa.authorizedDomains[identifier.Value] || identifier.Value == "not-an-example.com" {
 			exp := time.Now().AddDate(100, 0, 0)
 			return core.Authorization{Status: core.StatusValid, RegistrationID: 1, Expires: &exp, Identifier: identifier}, nil

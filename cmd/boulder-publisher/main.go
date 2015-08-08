@@ -32,6 +32,7 @@ func main() {
 		pubi, err := publisher.NewPublisherAuthorityImpl(c.Publisher.CT)
 		cmd.FailOnError(err, "Could not setup PA")
 
+		go cmd.DebugServer(c.Publisher.DebugAddr)
 		go cmd.ProfileCmd("Publisher", stats)
 
 		connectionHandler := func(srv *rpc.AmqpRPCServer) {

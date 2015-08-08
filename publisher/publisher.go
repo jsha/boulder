@@ -50,12 +50,8 @@ func (logDesc *LogDescription) UnmarshalJSON(data []byte) error {
 	if err != nil {
 		return fmt.Errorf("")
 	}
-	switch k := pk.(type) {
-	case ecdsa.PublicKey:
-		logDesc.PublicKey = &k
-	case *ecdsa.PublicKey:
-		logDesc.PublicKey = k
-	default:
+	var ok bool
+	if logDesc.PublicKey, ok = pk.(*ecdsa.PublicKey); !ok {
 		return fmt.Errorf("Failed to unmarshal log description for %s, unsupported public key type", logDesc.URI)
 	}
 
@@ -107,36 +103,159 @@ func NewPublisherAuthorityImpl(ctConfig *CTConfig) (PublisherAuthorityImpl, erro
 	logger.Notice("Publisher Authority Starting")
 	pub.log = logger
 
-	if ctConfig != nil {
-		pub.CT = ctConfig
-		if ctConfig.BundleFilename != "" {
-			bundle, err := core.LoadCertBundle(ctConfig.BundleFilename)
-			if err != nil {
-				return pub, nil
-			}
-			for _, cert := range bundle {
-				pub.CT.IssuerBundle = append(pub.CT.IssuerBundle, base64.StdEncoding.EncodeToString(cert.Raw))
-			}
-		}
-		ctBackoff, err := time.ParseDuration(ctConfig.SubmissionBackoffString)
-		if err != nil {
-			return pub, err
-		}
-		pub.CT.SubmissionBackoff = ctBackoff
+	if ctConfig == nil {
+		return pub, fmt.Errorf("No CT configuration provided")
 	}
+	pub.CT = ctConfig
+	if ctConfig.BundleFilename == "" {
+		return pub, fmt.Errorf("No CT submission bundle provided")
+	}
+	bundle, err := core.LoadCertBundle(ctConfig.BundleFilename)
+	if err != nil {
+		return pub, err
+	}
+	for _, cert := range bundle {
+		pub.CT.IssuerBundle = append(pub.CT.IssuerBundle, base64.StdEncoding.EncodeToString(cert.Raw))
+	}
+	ctBackoff, err := time.ParseDuration(ctConfig.SubmissionBackoffString)
+	if err != nil {
+		return pub, err
+	}
+	pub.CT.SubmissionBackoff = ctBackoff
 
 	return pub, nil
 }
 
+func (pub *PublisherAuthorityImpl) submitToCTLog(serial string, jsonSubmission []byte, log LogDescription, client http.Client) error {
+	done := false
+	var retries int
+	var sct core.SignedCertificateTimestamp
+	for !done && retries <= pub.CT.SubmissionRetries {
+		resp, err := postJSON(&client, fmt.Sprintf("%s%s", log.URI, "/ct/v1/add-chain"), jsonSubmission, &sct)
+		if err != nil {
+			// Retry the request, log the error
+			// AUDIT[ Error Conditions ] 9cc4d537-8534-4970-8665-4b382abe82f3
+			pub.log.AuditErr(fmt.Errorf("Error POSTing JSON to CT log submission endpoint [%s]: %s", log.URI, err))
+			if retries >= pub.CT.SubmissionRetries {
+				break
+			}
+			retries++
+			time.Sleep(pub.CT.SubmissionBackoff)
+			continue
+		} else {
+			if resp.StatusCode == http.StatusRequestTimeout || resp.StatusCode == http.StatusServiceUnavailable {
+				// Retry the request after either 10 seconds or the period specified
+				// by the Retry-After header
+				backoff := pub.CT.SubmissionBackoff
+				if retryAfter := resp.Header.Get("Retry-After"); retryAfter != "" {
+					if seconds, err := strconv.Atoi(retryAfter); err != nil {
+						backoff = time.Second * time.Duration(seconds)
+					}
+				}
+				if retries >= pub.CT.SubmissionRetries {
+					break
+				}
+				retries++
+				time.Sleep(backoff)
+				continue
+			} else if resp.StatusCode != http.StatusOK {
+				// Not something we expect to happen, set error, break loop and log
+				// the error
+				// AUDIT[ Error Conditions ] 9cc4d537-8534-4970-8665-4b382abe82f3
+				pub.log.AuditErr(fmt.Errorf("Unexpected status code returned from CT log submission endpoint [%s]: Unexpected status code [%d]", log.URI, resp.StatusCode))
+				break
+			}
+		}
+
+		done = true
+		break
+	}
+	if !done {
+		pub.log.Warning(fmt.Sprintf(
+			"Unable to submit certificate to CT log [Serial: %s, Log URI: %s, Retries: %d]",
+			serial,
+			log.URI,
+			retries,
+		))
+		return fmt.Errorf("Unable to submit certificate")
+	}
+
+	if err := sct.CheckSignature(); err != nil {
+		// AUDIT[ Error Conditions ] 9cc4d537-8534-4970-8665-4b382abe82f3
+		pub.log.AuditErr(err)
+		return err
+	}
+
+	// Do something with the signedCertificateTimestamp, we might want to
+	// include something in the CertificateStatus table or such to indicate
+	// that it has been successfully submitted to CT logs so that we can retry
+	// sometime in the future if it didn't work this time. (In the future this
+	// will be needed anyway for putting SCT in OCSP responses)
+	pub.log.Notice(fmt.Sprintf(
+		"Submitted certificate to CT log [Serial: %s, Log URI: %s, Retries: %d, Signature: %x]",
+		serial,
+		log.URI,
+		retries, sct.Signature,
+	))
+
+	// Set certificate serial and add SCT to SQL
+	sct.CertificateSerial = serial
+
+	// TODO(rolandshoemaker): there shouldn't be any existing receipts (although
+	// since logs should return the same receipt for a duplicate submission we
+	// may be able to ignore this and also ignore any existing row errors for
+	// the AddToSCTReceipt call below)
+	existingreceipt, err := pub.SA.GetSCTReceipt(sct.CertificateSerial, log.ID)
+	if err != nil && err != sql.ErrNoRows {
+		// AUDIT[ Error Conditions ] 9cc4d537-8534-4970-8665-4b382abe82f3
+		pub.log.AuditErr(fmt.Errorf(
+			"Error checking for existing SCT receipt for [%s to %s]: %s",
+			sct.CertificateSerial,
+			log.URI,
+			err,
+		))
+	}
+	if existingreceipt != nil {
+		// AUDIT[ Error Conditions ] 9cc4d537-8534-4970-8665-4b382abe82f3
+		err := fmt.Errorf("Existing SCT receipt for [%s to %s]", sct.CertificateSerial, log.URI)
+		pub.log.AuditErr(err)
+		return err
+	}
+	err = pub.SA.AddSCTReceipt(sct)
+	if err != nil {
+		// AUDIT[ Error Conditions ] 9cc4d537-8534-4970-8665-4b382abe82f3
+		pub.log.AuditErr(fmt.Errorf(
+			"Error adding SCT receipt for [%s to %s]: %s",
+			sct.CertificateSerial,
+			log.URI,
+			err,
+		))
+		return err
+	}
+	pub.log.Notice(fmt.Sprintf(
+		"Stored SCT receipt from CT log submission [Serial: %s, Log URI: %s]",
+		serial,
+		log.URI,
+	))
+	return nil
+}
+
 // SubmitToCT will submit the certificate represented by certDER to any CT
 // logs configured in pub.CT.Logs
-func (pub *PublisherAuthorityImpl) SubmitToCT(cert *x509.Certificate) error {
+func (pub *PublisherAuthorityImpl) SubmitToCT(der []byte) error {
+	fmt.Println(">>>>>> HI <<<<<<<<")
 	if pub.CT == nil {
 		return nil
 	}
+
+	cert, err := x509.ParseCertificate(der)
+	if err != nil {
+		pub.log.Err(fmt.Sprintf("Unable to parse certificate, %s", err))
+		return err
+	}
+
 	submission := ctSubmissionRequest{Chain: []string{base64.StdEncoding.EncodeToString(cert.Raw)}}
-	// Add all intermediate/root certificates needed for submission (this bundle
-	// can be created using boulder-gen-ct-bundle)
+	// Add all intermediate certificates needed for submission
 	submission.Chain = append(submission.Chain, pub.CT.IssuerBundle...)
 	client := http.Client{}
 	jsonSubmission, err := json.Marshal(submission)
@@ -146,116 +265,11 @@ func (pub *PublisherAuthorityImpl) SubmitToCT(cert *x509.Certificate) error {
 	}
 
 	for _, ctLog := range pub.CT.Logs {
-		done := false
-		var retries int
-		var sct core.SignedCertificateTimestamp
-		for !done && retries <= pub.CT.SubmissionRetries {
-			resp, err := postJSON(&client, fmt.Sprintf("%s%s", ctLog.URI, "/ct/v1/add-chain"), jsonSubmission, &sct)
-			if err != nil {
-				// Retry the request, log the error
-				// AUDIT[ Error Conditions ] 9cc4d537-8534-4970-8665-4b382abe82f3
-				pub.log.AuditErr(fmt.Errorf("Error POSTing JSON to CT log submission endpoint [%s]: %s", ctLog.URI, err))
-				if retries >= pub.CT.SubmissionRetries {
-					break
-				}
-				retries++
-				time.Sleep(pub.CT.SubmissionBackoff)
-				continue
-			} else {
-				if resp.StatusCode == http.StatusRequestTimeout || resp.StatusCode == http.StatusServiceUnavailable {
-					// Retry the request after either 10 seconds or the period specified
-					// by the Retry-After header
-					backoff := pub.CT.SubmissionBackoff
-					if retryAfter := resp.Header.Get("Retry-After"); retryAfter != "" {
-						if seconds, err := strconv.Atoi(retryAfter); err != nil {
-							backoff = time.Second * time.Duration(seconds)
-						}
-					}
-					if retries >= pub.CT.SubmissionRetries {
-						break
-					}
-					retries++
-					time.Sleep(backoff)
-					continue
-				} else if resp.StatusCode != http.StatusOK {
-					// Not something we expect to happen, set error, break loop and log
-					// the error
-					// AUDIT[ Error Conditions ] 9cc4d537-8534-4970-8665-4b382abe82f3
-					pub.log.AuditErr(fmt.Errorf("Unexpected status code returned from CT log submission endpoint [%s]: Unexpected status code [%d]", ctLog.URI, resp.StatusCode))
-					break
-				}
-			}
-
-			done = true
-			break
-		}
-		if !done {
-			pub.log.Warning(fmt.Sprintf(
-				"Unable to submit certificate to CT log [Serial: %s, Log URI: %s, Retries: %d]",
-				core.SerialToString(cert.SerialNumber),
-				ctLog.URI,
-				retries,
-			))
-			return fmt.Errorf("Unable to submit certificate")
-		}
-
-		if err = sct.CheckSignature(); err != nil {
-			// AUDIT[ Error Conditions ] 9cc4d537-8534-4970-8665-4b382abe82f3
-			pub.log.AuditErr(err)
-			return err
-		}
-
-		// Do something with the signedCertificateTimestamp, we might want to
-		// include something in the CertificateStatus table or such to indicate
-		// that it has been successfully submitted to CT logs so that we can retry
-		// sometime in the future if it didn't work this time. (In the future this
-		// will be needed anyway for putting SCT in OCSP responses)
-		pub.log.Notice(fmt.Sprintf(
-			"Submitted certificate to CT log [Serial: %s, Log URI: %s, Retries: %d, Signature: %x]",
-			core.SerialToString(cert.SerialNumber),
-			ctLog.URI,
-			retries, sct.Signature,
-		))
-
-		// Set certificate serial and add SCT to SQL
-		sct.CertificateSerial = core.SerialToString(cert.SerialNumber)
-
-		// TODO(rolandshoemaker): there shouldn't be any existing receipts (although
-		// since logs should return the same receipt for a duplicate submission we
-		// may be able to ignore this and also ignore any existing row errors for
-		// the AddToSCTReceipt call below)
-		existingreceipt, err := pub.SA.GetSCTReceipt(sct.CertificateSerial, ctLog.ID)
-		if err != nil && err != sql.ErrNoRows {
-			// AUDIT[ Error Conditions ] 9cc4d537-8534-4970-8665-4b382abe82f3
-			pub.log.AuditErr(fmt.Errorf(
-				"Error checking for existing SCT receipt for [%s to %s]: %s",
-				sct.CertificateSerial,
-				ctLog.URI,
-				err,
-			))
-		}
-		if existingreceipt != nil {
-			// AUDIT[ Error Conditions ] 9cc4d537-8534-4970-8665-4b382abe82f3
-			err := fmt.Errorf("Existing SCT receipt for [%s to %s]", sct.CertificateSerial, ctLog.URI)
-			pub.log.AuditErr(err)
-			return err
-		}
-		err = pub.SA.AddSCTReceipt(sct)
+		err = pub.submitToCTLog(core.SerialToString(cert.SerialNumber), jsonSubmission, ctLog, client)
 		if err != nil {
-			// AUDIT[ Error Conditions ] 9cc4d537-8534-4970-8665-4b382abe82f3
-			pub.log.AuditErr(fmt.Errorf(
-				"Error adding SCT receipt for [%s to %s]: %s",
-				sct.CertificateSerial,
-				ctLog.URI,
-				err,
-			))
-			return err
+			pub.log.Err(err.Error())
+			continue
 		}
-		pub.log.Notice(fmt.Sprintf(
-			"Stored SCT receipt from CT log submission [Serial: %s, Log URI: %s]",
-			core.SerialToString(cert.SerialNumber),
-			ctLog.URI,
-		))
 	}
 
 	return nil

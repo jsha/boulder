@@ -168,6 +168,9 @@ type Config struct {
 		DBDriver string
 		DBName   string
 		CT       *publisher.CTConfig
+
+		// DebugAddr is the address to run the /debug handlers on.
+		DebugAddr string
 	}
 
 	Common struct {

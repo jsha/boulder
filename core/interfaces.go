@@ -156,5 +156,5 @@ type DNSResolver interface {
 
 // PublisherAuthority defines the public interface for the Boulder Publisher
 type PublisherAuthority interface {
-	SubmitToCT(*x509.Certificate) error
+	SubmitToCT([]byte) error
 }

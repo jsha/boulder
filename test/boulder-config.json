@@ -27,6 +27,10 @@
     "CA": {
       "client": "CA.client",
       "server": "CA.server"
+    },
+    "Publisher": {
+      "client": "Publisher.client",
+      "server": "Publisher.server"
     }
   },
 
@@ -163,42 +167,24 @@
     "messageLimit": 0,
     "nagTimes": ["24h", "72h", "168h", "336h"],
     "emailTemplate": "test/example-expiration-template",
-    "debugAddr": "localhost:8004"
+    "debugAddr": "localhost:8008"
   },
 
   "publisher": {
     "dbDriver": "sqlite3",
     "dbName": ":memory:",
-    "-uncomment_for_CT_submission-ct": {
+    "ct": {
       "logs": [
         {
-          "uri": "ct.googleapis.com/pilot",
+          "uri": "http://127.0.0.1:4500",
           "key": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEfahLEimAoz2t01p3uMziiLOl/fHTDM0YDOhBRuiBARsV4UvxG2LdNgoIGLrtCzWE0J5APC2em4JlvR8EEEFMoA=="
-        },
-        {
-          "uri": "ct.googleapis.com/aviator",
-          "key": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE1/TMabLkDpCjiupacAlP7xNi0I1JYP8bQFAHDG1xhtolSY1l4QgNRzRrvSe8liE+NPWHdjGxfx3JhTsN9x8/6Q=="
-        },
-        {
-          "uri": "ct.googleapis.com/rocketeer",
-          "key": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEIFsYyDzBi7MxCAC/oJBXK7dHjG+1aLCOkHjpoHPqTyghLpzA9BYbqvnV16mAw04vUjyYASVGJCUoI3ctBcJAeg=="
-        },
-        {
-          "uri": "ct1.digicert-ct.com/log",
-          "key": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEAkbFvhu7gkAW6MHSrBlpE1n4+HCFRkC5OLAjgqhkTH+/uzSfSl8ois8ZxAD2NgaTZe1M9akhYlrYkes4JECs6A=="
-        },
-        {
-          "uri": "ct.izenpe.com",
-          "key": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEJ2Q5DC3cUBj4IQCiDu0s6j51up+TZAkAEcQRF6tczw90rLWXkJMAW7jr9yc92bIKgV8vDXU4lDeZHvYHduDuvg=="
-        },
-        {
-          "uri": "log.certly.io",
-          "key": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAECyPLhWKYYUgEc+tUXfPQB4wtGS2MNvXrjwFCCnyYJifBtd2Sk7Cu+Js9DNhMTh35FftHaHu6ZrclnNBKwmbbSA=="
         }
       ],
-      "submissionRetries": 0,
-      "submissionBackoffSeconds": "0s"
-    }
+      "submissionRetries": 1,
+      "submissionBackoff": "1s",
+      "intermediateBundleFilename": "publisher/example-bundle.der"
+    },
+    "debugAddr": "localhost:8009"
   },
 
   "common": {
