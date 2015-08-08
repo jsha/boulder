@@ -18,7 +18,8 @@ TESTDIRS="analysis \
           sa \
           test \
           va \
-          wfe"
+          wfe \
+          cmd/expiration-mailer"
           # cmd
           # Godeps
 
@@ -26,7 +27,7 @@ TESTDIRS="analysis \
 # Assume first it's the travis commit (for builds of master), unless we're
 # a PR, when it's actually the first parent.
 TRIGGER_COMMIT=${TRAVIS_COMMIT}
-if [ "${TRAVIS_PULL_REQUEST}" != "false" ] ; then
+if [ "x${TRAVIS_PULL_REQUEST}" != "x" ] ; then
   revs=$(git rev-list --parents -n 1 HEAD)
   # The trigger commit is the last ID in the space-delimited rev-list
   TRIGGER_COMMIT=${revs##* }
@@ -48,39 +49,89 @@ update_status() {
   if ([ "${TRAVIS}" == "true" ] && [ "x${CONTEXT}" != "x" ]) && [ -f "${GITHUB_SECRET_FILE}" ]; then
     github-pr-status --authfile $GITHUB_SECRET_FILE \
       --owner "letsencrypt" --repo "boulder" \
-      status --sha "${TRIGGER_COMMIT}" --context "${CONTEXT}" $*
+      status --sha "${TRIGGER_COMMIT}" --context "${CONTEXT}" \
+      --url "https://travis-ci.org/letsencrypt/boulder/builds/${TRAVIS_BUILD_ID}" $*
   fi
 }
 
 run() {
-  echo "$*"
-  $* 2>&1
+  echo "$@"
+  "$@" 2>&1
   local status=$?
 
   if [ ${status} -eq 0 ]; then
     update_status --state success
-    echo "Success: $*"
+    echo "Success: $@"
   else
     FAILURE=1
     update_status --state failure
-    echo "[!] FAILURE: $*"
+    echo "[!] FAILURE: $@"
   fi
 
   return ${status}
 }
 
 run_and_comment() {
-  if [ "x${TRAVIS}" = "x" ] || [ "${TRAVIS_PULL_REQUEST}" == "false" ] || [ ! -f "${GITHUB_SECRET_FILE}"] ; then
-    run $*
+  if [ "x${TRAVIS}" = "x" ] || [ "${TRAVIS_PULL_REQUEST}" == "false" ] || [ ! -f "${GITHUB_SECRET_FILE}" ] ; then
+    run "$@"
   else
-    result=$(run $*)
+    result=$(run "$@")
     local status=$?
     # Only send a comment if exit code > 0
     if [ ${status} -ne 0 ] ; then
       echo $'```\n'${result}$'\n```' | github-pr-status --authfile $GITHUB_SECRET_FILE \
         --owner "letsencrypt" --repo "boulder" \
-        comment --pr ${TRAVIS_PULL_REQUEST}
+        comment --pr "${TRAVIS_PULL_REQUEST}" -b -
     fi
+  fi
+}
+
+function die() {
+  if [ ! -z "$1" ]; then
+    echo $1 > /dev/stderr
+  fi
+  exit 1
+}
+
+function build_letsencrypt() {
+  # Test for python 2 installs with the usual names.
+  if hash python2 2>/dev/null; then
+    PY=python2
+  elif hash python2.7 2>/dev/null; then
+    PY=python2.7
+  else
+    die "unable to find a python2 or python2.7 binary in \$PATH"
+  fi
+
+  run git clone \
+    https://www.github.com/letsencrypt/letsencrypt.git \
+    $LETSENCRYPT_PATH || exit 1
+
+  cd $LETSENCRYPT_PATH
+
+  run virtualenv --no-site-packages -p $PY ./venv
+  run ./venv/bin/pip install -r requirements.txt -e acme -e . -e letsencrypt-apache -e letsencrypt-nginx
+
+  cd -
+}
+
+function run_unit_tests() {
+  if [ "${TRAVIS}" == "true" ]; then
+    # Run each test by itself for Travis, so we can get coverage
+    for dir in ${TESTDIRS}; do
+      run go test -race -covermode=count -coverprofile=${dir}.coverprofile ./${dir}/
+    done
+
+    # Gather all the coverprofiles
+    [ -e $GOBIN/gover ] && run $GOBIN/gover
+
+    # We don't use the run function here because sometimes goveralls fails to
+    # contact the server and exits with non-zero status, but we don't want to
+    # treat that as a failure.
+    [ -e $GOBIN/goveralls ] && $GOBIN/goveralls -coverprofile=gover.coverprofile -service=travis-ci
+  else
+    # Run all the tests together if local, for speed
+    run go test $GOTESTFLAGS ./...
   fi
 }
 
@@ -108,29 +159,26 @@ end_context #test/golint
 # Ensure all files are formatted per the `go fmt` tool
 #
 start_context "test/gofmt"
-unformatted=$(find . -name "*.go" -not -path "./Godeps/*" -print | xargs -n1 gofmt -l)
-if [ "x${unformatted}" == "x" ] ; then
-  update_status --state success
-else
+check_gofmt() {
+  unformatted=$(find . -name "*.go" -not -path "./Godeps/*" -print | xargs -n1 gofmt -l)
+  if [ "x${unformatted}" == "x" ] ; then
+    return 0
+  else
+    V="Unformatted files found.
+    Please run 'go fmt' on each of these files and amend your commit to continue."
 
-  V="Unformatted files found.
-  Please run 'go fmt' on each of these files and amend your commit to continue."
+    for f in ${unformatted}; do
+      V=$(printf "%s\n - %s" "${V}" "${f}")
+    done
 
-  for f in ${unformatted}; do
-    V=$(printf "%s\n - %s" "${V}" "${f}")
-  done
-
-  # Print to stdout
-  printf "%s\n\n" "${V}"
-  update_status --state failure --description "${V}"
-
-  # Post a comment with the unformatted list
-  if [ "${TRAVIS_PULL_REQUEST}" != "false" ] ; then
-    run_and_comment printf "%s\n\n" "${V}"
+    # Print to stdout
+    printf "%s\n\n" "${V}"
+    [ "${TRAVIS}" == "true" ] || exit 1 # Stop here if running locally
+    return 1
   fi
+}
 
-  [ "${TRAVIS}" == "true" ] || exit 1 # Stop here if running locally
-fi
+run_and_comment check_gofmt
 end_context #test/gofmt
 
 #
@@ -141,36 +189,23 @@ end_context #test/gofmt
 # Ensure SQLite is installed so we don't recompile it each time
 go install ./Godeps/_workspace/src/github.com/mattn/go-sqlite3
 
-if [ "${TRAVIS}" == "true" ] ; then
-  # Run each test by itself for Travis, so we can get coverage
-  for dir in ${TESTDIRS}; do
-    run go test -tags pkcs11 -covermode=count -coverprofile=${dir}.coverprofile ./${dir}/
-  done
-
-  # Gather all the coverprofiles
-  [ -e $GOBIN/gover ] && run $GOBIN/gover
-
-  # We don't use the run function here because sometimes goveralls fails to
-  # contact the server and exits with non-zero status, but we don't want to
-  # treat that as a failure.
-  [ -e $GOBIN/goveralls ] && $GOBIN/goveralls -coverprofile=gover.coverprofile -service=travis-ci
+if  [ "${SKIP_UNIT_TESTS}" == "1" ]; then
+  echo "Skipping unit tests."
 else
-  # Run all the tests together if local, for speed
-  dirlist=""
-
-  for dir in ${TESTDIRS}; do
-    dirlist="${dirlist} ./${dir}/"
-  done
-
-  run go test -tags pkcs11 ${dirlist}
+  run_unit_tests
 fi
 
 # If the unittests failed, exit before trying to run the integration test.
 if [ ${FAILURE} != 0 ]; then
   echo "--------------------------------------------------"
-  echo "---          A unit test failed.               ---"
+  echo "---        A unit test or tool failed.         ---"
   echo "--- Stopping before running integration tests. ---"
   echo "--------------------------------------------------"
+  exit ${FAILURE}
+fi
+
+if [ "${SKIP_INTEGRATION_TESTS}" = "1" ]; then
+  echo "Skipping integration tests."
   exit ${FAILURE}
 fi
 
@@ -184,23 +219,17 @@ update_status --state pending --description "Integration Tests in progress"
 
 if [ -z "$LETSENCRYPT_PATH" ]; then
   LETSENCRYPT_PATH=$(mktemp -d -t leXXXX)
-
   echo "------------------------------------------------"
   echo "--- Checking out letsencrypt client is slow. ---"
   echo "--- Recommend setting \$LETSENCRYPT_PATH to  ---"
   echo "--- client repo with initialized virtualenv  ---"
   echo "------------------------------------------------"
-  run git clone \
-    https://www.github.com/letsencrypt/lets-encrypt-preview.git \
-    $LETSENCRYPT_PATH || exit 1
-
-  cd $LETSENCRYPT_PATH
-  run virtualenv --no-site-packages -p python2 ./venv && \
-    ./venv/bin/pip install -r requirements.txt -e acme -e . -e letsencrypt_apache -e letsencrypt_nginx || exit 1
-  cd -
+  build_letsencrypt
+elif [ ! -d "${LETSENCRYPT_PATH}" ]; then
+  build_letsencrypt
 fi
 
-source $LETSENCRYPT_PATH/venv/bin/activate
+source $LETSENCRYPT_PATH/venv/bin/activate || die "The LETSENCRYPT_PATH (${LETSENCRYPT_PATH}) does not have a venv/bin/activate and probably did not build correctly."
 export LETSENCRYPT_PATH
 
 python test/amqp-integration-test.py

@@ -9,7 +9,6 @@ import (
 	"crypto/x509"
 	"database/sql"
 	"fmt"
-	"math"
 	"time"
 
 	"github.com/letsencrypt/boulder/Godeps/_workspace/src/github.com/cactus/go-statsd-client/statsd"
@@ -23,8 +22,6 @@ import (
 	"github.com/letsencrypt/boulder/rpc"
 	"github.com/letsencrypt/boulder/sa"
 )
-
-const ocspResponseLimit int = 128
 
 // FatalError indicates the updater should stop execution
 type FatalError string
@@ -40,7 +37,7 @@ type OCSPUpdater struct {
 }
 
 func setupClients(c cmd.Config) (rpc.CertificateAuthorityClient, chan *amqp.Error) {
-	ch, err := cmd.AmqpChannel(c)
+	ch, err := rpc.AmqpChannel(c)
 	cmd.FailOnError(err, "Could not connect to AMQP")
 
 	closeChan := ch.NotifyClose(make(chan *amqp.Error, 1))
@@ -191,7 +188,7 @@ func main() {
 
 	app.App.Flags = append(app.App.Flags, cli.IntFlag{
 		Name:   "limit",
-		Value:  ocspResponseLimit,
+		Value:  100,
 		EnvVar: "OCSP_LIMIT",
 		Usage:  "Count of responses to process per run",
 	})
@@ -214,8 +211,10 @@ func main() {
 
 		blog.SetAuditLogger(auditlogger)
 
+		go cmd.DebugServer(c.OCSPUpdater.DebugAddr)
+
 		// Configure DB
-		dbMap, err := sa.NewDbMap(c.OCSPUpdater.DBDriver, c.OCSPUpdater.DBName)
+		dbMap, err := sa.NewDbMap(c.OCSPUpdater.DBDriver, c.OCSPUpdater.DBConnect)
 		cmd.FailOnError(err, "Could not connect to database")
 
 		cac, closeChan := setupClients(c)
@@ -224,7 +223,7 @@ func main() {
 			// Abort if we disconnect from AMQP
 			for {
 				for err := range closeChan {
-					auditlogger.Warning(fmt.Sprintf("AMQP Channel closed, aborting early: [%s]", err))
+					auditlogger.Warning(fmt.Sprintf(" [!] AMQP Channel closed, aborting early: [%s]", err))
 					panic(err)
 				}
 			}
@@ -249,12 +248,10 @@ func main() {
 		oldestLastUpdatedTime := time.Now().Add(-dur)
 		auditlogger.Info(fmt.Sprintf("Searching for OCSP responses older than %s", oldestLastUpdatedTime))
 
-		count := int(math.Min(float64(ocspResponseLimit), float64(c.OCSPUpdater.ResponseLimit)))
-
 		// When we choose to batch responses, it may be best to restrict count here,
 		// change the transaction to survive the whole findStaleResponses, and to
 		// loop this method call however many times is appropriate.
-		err = updater.findStaleResponses(oldestLastUpdatedTime, count)
+		err = updater.findStaleResponses(oldestLastUpdatedTime, c.OCSPUpdater.ResponseLimit)
 		if err != nil {
 			auditlogger.WarningErr(err)
 		}

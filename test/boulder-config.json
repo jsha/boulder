@@ -36,14 +36,20 @@
   },
 
   "wfe": {
-    "listenAddress": "127.0.0.1:4000"
+    "listenAddress": "127.0.0.1:4000",
+    "certCacheDuration": "6h",
+    "certNoCacheExpirationWindow": "96h",
+    "indexCacheDuration": "24h",
+    "issuerCacheDuration": "48h",
+    "debugAddr": "localhost:8000"
   },
 
   "ca": {
     "serialPrefix": 255,
     "profile": "ee",
     "dbDriver": "sqlite3",
-    "dbName": ":memory:",
+    "dbConnect": ":memory:",
+    "debugAddr": "localhost:8001",
     "testMode": true,
     "_comment": "This should only be present in testMode. In prod use an HSM.",
     "Key": {
@@ -103,15 +109,19 @@
     }
   },
 
+  "ra": {
+    "debugAddr": "localhost:8002"
+  },
+
   "sa": {
     "dbDriver": "sqlite3",
-    "dbName": ":memory:"
+    "dbConnect": ":memory:",
+    "debugAddr": "localhost:8003"
   },
 
   "va": {
-    "dnsResolver": "8.8.8.8:53",
-    "dnsTimeout": "10s",
-    "userAgent": "boulder"
+    "userAgent": "boulder",
+    "debugAddr": "localhost:8004"
   },
 
   "sql": {
@@ -121,27 +131,39 @@
 
   "revoker": {
     "dbDriver": "sqlite3",
-    "dbName": ":memory:"
+    "dbConnect": ":memory:"
   },
 
   "ocspResponder": {
     "dbDriver": "sqlite3",
-    "dbName": ":memory:",
+    "dbConnect": ":memory:",
     "path": "/",
-    "listenAddress": "localhost:4001"
+    "listenAddress": "localhost:4001",
+    "debugAddr": "localhost:8005"
   },
 
   "ocspUpdater": {
     "dbDriver": "sqlite3",
-    "dbName": ":memory:",
-    "minTimeToExpiry": "72h"
+    "dbConnect": ":memory:",
+    "minTimeToExpiry": "72h",
+    "debugAddr": "localhost:8006"
   },
 
-  "mail": {
+  "activityMonitor": {
+    "debugAddr": "localhost:8007"
+  },
+
+  "mailer": {
     "server": "mail.example.com",
     "port": "25",
     "username": "cert-master@example.com",
-    "password": "password"
+    "password": "password",
+    "dbDriver": "sqlite3",
+    "dbConnect": ":memory:",
+    "messageLimit": 0,
+    "nagTimes": ["24h", "72h", "168h", "336h"],
+    "emailTemplate": "test/example-expiration-template",
+    "debugAddr": "localhost:8004"
   },
 
   "publisher": {
@@ -182,8 +204,10 @@
   "common": {
     "baseURL": "http://localhost:4000",
     "issuerCert": "test/test-ca.pem",
-    "maxKeySize": 4096
+    "maxKeySize": 4096,
+    "dnsResolver": "127.0.0.1:8053",
+    "dnsTimeout": "10s"
   },
 
-  "subscriberAgreementURL": "http://localhost:4300/terms"
+  "subscriberAgreementURL": "http://localhost:4000/terms/v1"
 }
