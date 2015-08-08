@@ -56,6 +56,7 @@ type Config struct {
 	// General
 	AMQP struct {
 		Server    string
+		Insecure  bool
 		RA        Queue
 		VA        Queue
 		SA        Queue
