@@ -519,7 +519,6 @@ func (vac ValidationAuthorityClient) CheckCAARecords(ident core.AcmeIdentifier) 
 
 func NewPublisherAuthorityServer(rpc RPCServer, impl core.PublisherAuthority) (err error) {
 	rpc.Handle(MethodSubmitToCT, func(req []byte) (response []byte, err error) {
-		fmt.Println(">>> RECIEVED")
 		err = impl.SubmitToCT(req)
 		return
 	})
@@ -540,7 +539,6 @@ func NewPublisherAuthorityClient(client RPCClient) (pub PublisherAuthorityClient
 
 // SubmitToCT sends a request to submit a certifcate to CT logs
 func (pub PublisherAuthorityClient) SubmitToCT(der []byte) (err error) {
-	fmt.Println(">>> SENDING")
 	_, err = pub.rpc.DispatchSync(MethodSubmitToCT, der)
 	return
 }

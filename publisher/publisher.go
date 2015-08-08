@@ -243,7 +243,6 @@ func (pub *PublisherAuthorityImpl) submitToCTLog(serial string, jsonSubmission [
 // SubmitToCT will submit the certificate represented by certDER to any CT
 // logs configured in pub.CT.Logs
 func (pub *PublisherAuthorityImpl) SubmitToCT(der []byte) error {
-	fmt.Println(">>>>>> HI <<<<<<<<")
 	if pub.CT == nil {
 		return nil
 	}
