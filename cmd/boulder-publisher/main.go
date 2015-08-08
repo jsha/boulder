@@ -7,7 +7,6 @@ package main
 
 import (
 	"github.com/letsencrypt/boulder/Godeps/_workspace/src/github.com/cactus/go-statsd-client/statsd"
-	"github.com/letsencrypt/boulder/Godeps/_workspace/src/github.com/streadway/amqp"
 
 	"github.com/letsencrypt/boulder/cmd"
 	blog "github.com/letsencrypt/boulder/log"
@@ -31,32 +30,28 @@ func main() {
 		blog.SetAuditLogger(auditlogger)
 
 		pubi, err := publisher.NewPublisherAuthorityImpl(c.Publisher.CT)
+		cmd.FailOnError(err, "Could not setup PA")
 
 		go cmd.ProfileCmd("Publisher", stats)
 
-		for {
-			ch, err := cmd.AmqpChannel(c)
-			cmd.FailOnError(err, "Could not connect to AMQP")
-
-			closeChan := ch.NotifyClose(make(chan *amqp.Error, 1))
-
-			saRPC, err := rpc.NewAmqpRPCClient("Publisher->SA", c.AMQP.SA.Server, ch)
+		connectionHandler := func(srv *rpc.AmqpRPCServer) {
+			saRPC, err := rpc.NewAmqpRPCClient("Publisher->SA", c.AMQP.SA.Server, srv.Channel)
 			cmd.FailOnError(err, "Unable to create SA RPC client")
 
 			sac, err := rpc.NewStorageAuthorityClient(saRPC)
 			cmd.FailOnError(err, "Unable to create SA client")
 
 			pubi.SA = &sac
-
-			pubs := rpc.NewAmqpRPCServer(c.AMQP.Publisher.Server, ch)
-
-			err = rpc.NewPublisherAuthorityServer(pubs, &pubi)
-			cmd.FailOnError(err, "Could not create Publisher RPC server")
-
-			auditlogger.Info(app.VersionString())
-
-			cmd.RunUntilSignaled(auditlogger, pubs, closeChan)
 		}
+
+		pubs, err := rpc.NewAmqpRPCServer(c.AMQP.Publisher.Server, connectionHandler)
+		cmd.FailOnError(err, "Unable to create PA RPC server")
+		rpc.NewPublisherAuthorityServer(pubs, &pubi)
+
+		auditlogger.Info(app.VersionString())
+
+		err = pubs.Start(c)
+		cmd.FailOnError(err, "Unable to run PA RPC server")
 	}
 
 	app.Run()

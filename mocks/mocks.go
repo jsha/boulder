@@ -209,8 +209,8 @@ func (sa *MockSA) GetRegistrationByKey(jwk jose.JsonWebKey) (core.Registration, 
 		return core.Registration{ID: 2}, sql.ErrNoRows
 	}
 
-	// Return a fake registration
-	return core.Registration{ID: 1, Agreement: agreementURL}, nil
+	// Return a fake registration. Make sure to fill the key field to avoid marshaling errors.
+	return core.Registration{ID: 1, Key: test1KeyPublic, Agreement: agreementURL}, nil
 }
 
 func (sa *MockSA) GetAuthorization(id string) (core.Authorization, error) {
@@ -242,8 +242,8 @@ func (sa *MockSA) GetCertificate(serial string) (core.Certificate, error) {
 	}
 }
 
-func (sa *MockSA) GetCertificateByShortSerial(string) (core.Certificate, error) {
-	return core.Certificate{}, nil
+func (sa *MockSA) GetCertificateByShortSerial(serial string) (core.Certificate, error) {
+	return sa.GetCertificate("0000000000000000" + serial)
 }
 
 func (sa *MockSA) GetCertificateStatus(serial string) (core.CertificateStatus, error) {
