@@ -66,7 +66,6 @@ def start(race_detection):
             'test/dns-test-srv']:
         try:
             processes.append(run(prog, race_detection))
-            time.sleep(5)
         except Exception as e:
             print(e)
             return False
