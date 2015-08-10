@@ -204,12 +204,10 @@ type Registration struct {
 	Key jose.JsonWebKey `json:"key" db:"jwk"`
 
 	// Contact URIs
-	Contact []AcmeURL `json:"contact,omitempty" db:"contact"`
+	Contact []*AcmeURL `json:"contact,omitempty" db:"contact"`
 
 	// Agreement with terms of service
 	Agreement string `json:"agreement,omitempty" db:"agreement"`
-
-	LockCol int64 `json:"-"`
 }
 
 // MergeUpdate copies a subset of information from the input Registration
@@ -244,7 +242,7 @@ type Challenge struct {
 	Validated *time.Time `json:"validated,omitempty"`
 
 	// A URI to which a response can be POSTed
-	URI AcmeURL `json:"uri"`
+	URI *AcmeURL `json:"uri"`
 
 	// Used by simpleHttp, dvsni, and dns challenges
 	Token string `json:"token,omitempty"`
@@ -418,6 +416,34 @@ type Certificate struct {
 	DER     []byte    `db:"der"`
 	Issued  time.Time `db:"issued"`
 	Expires time.Time `db:"expires"`
+}
+
+type IssuedCertIdentifierData struct {
+	ReversedName string
+	Serial       string
+}
+
+// IdentifierData holds information about what certificates are known for a
+// given identifier. This is used to present Proof of Posession challenges in
+// the case where a certificate already exists. The DB table holding
+// IdentifierData rows contains information about certs issued by Boulder and
+// also information about certs observed from third parties.
+type IdentifierData struct {
+	ReversedName string `db:"reversedName"` // The label-wise reverse of an identifier, e.g. com.example or com.example.*
+	CertSHA1     string `db:"certSHA1"`     // The hex encoding of the SHA-1 hash of a cert containing the identifier
+}
+
+// ExternalCert holds information about certificates issued by other CAs,
+// obtained through Certificate Transparency, the SSL Observatory, or scans.io.
+type ExternalCert struct {
+	SHA1     string    `db:"sha1"`       // The hex encoding of the SHA-1 hash of this cert
+	Issuer   string    `db:"issuer"`     // The Issuer field of this cert
+	Subject  string    `db:"subject"`    // The Subject field of this cert
+	NotAfter time.Time `db:"notAfter"`   // Date after which this cert should be considered invalid
+	SPKI     []byte    `db:"spki"`       // The hex encoding of the certificate's SubjectPublicKeyInfo in DER form
+	Valid    bool      `db:"valid"`      // Whether this certificate was valid at LastUpdated time
+	EV       bool      `db:"ev"`         // Whether this cert was EV valid
+	CertDER  []byte    `db:"rawDERCert"` // DER (binary) encoding of the raw certificate
 }
 
 // MatchesCSR tests the contents of a generated certificate to make sure
