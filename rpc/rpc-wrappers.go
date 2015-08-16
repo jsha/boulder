@@ -972,7 +972,7 @@ func NewStorageAuthorityServer(rpc RPCServer, impl core.StorageAuthority) error 
 	rpc.Handle(MethodGetSCTReceipt, func(req []byte) (response []byte, err error) {
 		var gsctReq struct {
 			Serial string
-			LogID  []byte
+			LogID  string
 		}
 
 		err = json.Unmarshal(req, &gsctReq)
@@ -1279,7 +1279,7 @@ func (cac StorageAuthorityClient) GetSCTReceipts(serial string) ([]*core.SignedC
 	return nil, nil
 }
 
-func (cac StorageAuthorityClient) GetSCTReceipt(serial string, logID []byte) (*core.SignedCertificateTimestamp, error) {
+func (cac StorageAuthorityClient) GetSCTReceipt(serial string, logID string) (*core.SignedCertificateTimestamp, error) {
 	return nil, nil
 }
 

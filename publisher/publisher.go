@@ -25,7 +25,7 @@ import (
 )
 
 type LogDescription struct {
-	ID        []byte
+	ID        string
 	URI       string
 	PublicKey *ecdsa.PublicKey
 }
@@ -57,8 +57,8 @@ func (logDesc *LogDescription) UnmarshalJSON(data []byte) error {
 
 	// Generate key hash for log ID
 	pkHash := sha256.Sum256(pkBytes)
-	logDesc.ID = pkHash[:]
-	if len(logDesc.ID) != 32 {
+	logDesc.ID = base64.StdEncoding.EncodeToString(pkHash[:])
+	if len(logDesc.ID) != 44 {
 		return fmt.Errorf("Invalid log ID length [%d]", len(logDesc.ID))
 	}
 

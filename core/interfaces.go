@@ -109,7 +109,7 @@ type StorageGetter interface {
 	GetCertificateStatus(string) (CertificateStatus, error)
 	AlreadyDeniedCSR([]string) (bool, error)
 	GetSCTReceipts(string) ([]*SignedCertificateTimestamp, error)
-	GetSCTReceipt(string, []byte) (*SignedCertificateTimestamp, error)
+	GetSCTReceipt(string, string) (*SignedCertificateTimestamp, error)
 }
 
 // StorageAdder are the Boulder SA's write/update methods

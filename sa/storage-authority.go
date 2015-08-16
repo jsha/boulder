@@ -6,7 +6,6 @@
 package sa
 
 import (
-	"bytes"
 	"crypto/sha256"
 	"crypto/x509"
 	"database/sql"
@@ -581,14 +580,14 @@ func (ssa *SQLStorageAuthority) GetSCTReceipts(serial string) (receipts []*core.
 
 // GetSCTReceipt gets a specific SCT receipt for a given certificate serial and
 // CT log ID
-func (ssa *SQLStorageAuthority) GetSCTReceipt(serial string, logID []byte) (*core.SignedCertificateTimestamp, error) {
+func (ssa *SQLStorageAuthority) GetSCTReceipt(serial string, logID string) (*core.SignedCertificateTimestamp, error) {
 	// TODO(rolandshoemaker): This could be a better query
 	receipts, err := ssa.GetSCTReceipts(serial)
 	if err != nil {
 		return nil, err
 	}
 	for _, receipt := range receipts {
-		if bytes.Compare(receipt.LogID, logID) == 0 {
+		if receipt.LogID == logID {
 			return receipt, nil
 		}
 	}

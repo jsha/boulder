@@ -397,13 +397,11 @@ const (
 )
 
 func TestAddSCTReceipt(t *testing.T) {
-	logBytes, err := base64.StdEncoding.DecodeString(sctLogID)
-	test.AssertNotError(t, err, "Failed to decode log ID")
 	sigBytes, err := base64.StdEncoding.DecodeString(sctSignature)
 	test.AssertNotError(t, err, "Failed to decode SCT signature")
 	sct := core.SignedCertificateTimestamp{
 		SCTVersion:        sctVersion,
-		LogID:             logBytes,
+		LogID:             sctLogID,
 		Timestamp:         sctTimestamp,
 		Signature:         sigBytes,
 		CertificateSerial: sctCertSerial,
@@ -418,13 +416,11 @@ func TestAddSCTReceipt(t *testing.T) {
 }
 
 func TestGetSCTReceipt(t *testing.T) {
-	logBytes, err := base64.StdEncoding.DecodeString(sctLogID)
-	test.AssertNotError(t, err, "Failed to decode log ID")
 	sigBytes, err := base64.StdEncoding.DecodeString(sctSignature)
 	test.AssertNotError(t, err, "Failed to decode SCT signature")
 	sct := core.SignedCertificateTimestamp{
 		SCTVersion:        sctVersion,
-		LogID:             logBytes,
+		LogID:             sctLogID,
 		Timestamp:         sctTimestamp,
 		Signature:         sigBytes,
 		CertificateSerial: sctCertSerial,
@@ -434,27 +430,23 @@ func TestGetSCTReceipt(t *testing.T) {
 	err = sa.AddSCTReceipt(sct)
 	test.AssertNotError(t, err, "Failed to add SCT receipt")
 
-	sqlSCT, err := sa.GetSCTReceipt(sctCertSerial, logBytes)
+	sqlSCT, err := sa.GetSCTReceipt(sctCertSerial, sctLogID)
 	test.AssertNotError(t, err, "Failed to get existing SCT receipt")
 	test.Assert(t, sqlSCT.SCTVersion == sct.SCTVersion, "Invalid SCT version")
-	test.Assert(t, bytes.Compare(sqlSCT.LogID, sct.LogID) == 0, "Invalid log ID")
+	test.Assert(t, sqlSCT.LogID == sct.LogID, "Invalid log ID")
 	test.Assert(t, sqlSCT.Timestamp == sct.Timestamp, "Invalid timestamp")
 	test.Assert(t, bytes.Compare(sqlSCT.Signature, sct.Signature) == 0, "Invalid signature")
 	test.Assert(t, sqlSCT.CertificateSerial == sct.CertificateSerial, "Invalid certificate serial")
 }
 
 func TestGetSCTReceipts(t *testing.T) {
-	logBytes, err := base64.StdEncoding.DecodeString(sctLogID)
-	test.AssertNotError(t, err, "Failed to decode log ID")
 	sigBytes, err := base64.StdEncoding.DecodeString(sctSignature)
 	test.AssertNotError(t, err, "Failed to decode SCT signature")
-	secondLogBytes, err := base64.StdEncoding.DecodeString(sctLogID)
-	test.AssertNotError(t, err, "Failed to decode log ID")
 	secondSigBytes, err := base64.StdEncoding.DecodeString(sctSignature)
 	test.AssertNotError(t, err, "Failed to decode SCT signature")
 	sct := core.SignedCertificateTimestamp{
 		SCTVersion:        sctVersion,
-		LogID:             logBytes,
+		LogID:             sctLogID,
 		Timestamp:         sctTimestamp,
 		Signature:         sigBytes,
 		CertificateSerial: sctCertSerial,
@@ -466,13 +458,13 @@ func TestGetSCTReceipts(t *testing.T) {
 
 	secondSCT := core.SignedCertificateTimestamp{
 		SCTVersion:        sctVersion,
-		LogID:             secondLogBytes,
+		LogID:             sctLogID,
 		Timestamp:         sctTimestamp,
 		Signature:         secondSigBytes,
 		CertificateSerial: sctCertSerial,
 	}
 
-	secondSCT.LogID[0] = 0
+	secondSCT.LogID = "0" + secondSCT.LogID[1:]
 	secondSCT.Signature[0] = 0
 	err = sa.AddSCTReceipt(secondSCT)
 	test.AssertNotError(t, err, "Failed to add second SCT receipt")
@@ -483,13 +475,13 @@ func TestGetSCTReceipts(t *testing.T) {
 	fmt.Println(sct.LogID, sqlSCTs[0].LogID)
 
 	test.Assert(t, sqlSCTs[0].SCTVersion == sct.SCTVersion, "Invalid SCT version for first receipt")
-	test.Assert(t, bytes.Compare(sqlSCTs[0].LogID, sct.LogID) == 0, "Invalid log ID for first receipt")
+	test.Assert(t, sqlSCTs[0].LogID == sct.LogID, "Invalid log ID for first receipt")
 	test.Assert(t, sqlSCTs[0].Timestamp == sct.Timestamp, "Invalid timestamp for first receipt")
 	test.Assert(t, bytes.Compare(sqlSCTs[0].Signature, sct.Signature) == 0, "Invalid signature for first receipt")
 	test.Assert(t, sqlSCTs[0].CertificateSerial == sct.CertificateSerial, "Invalid certificate serial for first receipt")
 
 	test.Assert(t, sqlSCTs[1].SCTVersion == sct.SCTVersion, "Invalid SCT version for second receipt")
-	test.Assert(t, bytes.Compare(sqlSCTs[1].LogID, secondSCT.LogID) == 0, "Invalid log ID for second receipt")
+	test.Assert(t, sqlSCTs[1].LogID == secondSCT.LogID, "Invalid log ID for second receipt")
 	test.Assert(t, sqlSCTs[1].Timestamp == sct.Timestamp, "Invalid timestamp for second receipt")
 	test.Assert(t, bytes.Compare(sqlSCTs[1].Signature, secondSCT.Signature) == 0, "Invalid signature for second receipt")
 	test.Assert(t, sqlSCTs[1].CertificateSerial == sct.CertificateSerial, "Invalid certificate serial for second receipt")

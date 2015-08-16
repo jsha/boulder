@@ -605,11 +605,12 @@ type OCSPSigningRequest struct {
 }
 
 type SignedCertificateTimestamp struct {
+	ID int `db:"id",json:"-"`
 	// The version of the protocol to which the SCT conforms
 	SCTVersion uint8 `db:"sctVersion",json:"rpcSCTVersion"`
 	// the SHA-256 hash of the log's public key, calculated over
 	// the DER encoding of the key represented as SubjectPublicKeyInfo.
-	LogID []byte `db:"logID",json:"rpcLogID"`
+	LogID string `db:"logID",json:"rpcLogID"`
 	// Timestamp (in ms since unix epoc) at which the SCT was issued
 	Timestamp uint64 `db:"timestamp",json:"rpcTimestamp"`
 	// For future extensions to the protocol
@@ -639,7 +640,7 @@ func (sct *SignedCertificateTimestamp) UnmarshalJSON(data []byte) error {
 	if err = json.Unmarshal(data, &rawSCT); err != nil {
 		return fmt.Errorf("Failed to unmarshal SCT receipt, %s", err)
 	}
-	sct.LogID, err = base64.StdEncoding.DecodeString(rawSCT.LogID)
+	sct.LogID = rawSCT.LogID
 	if err != nil {
 		return fmt.Errorf("Failed to decode log ID, %s", err)
 	}

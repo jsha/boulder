@@ -286,7 +286,7 @@ func (sa *MockSA) GetSCTReceipts(serial string) (scts []*core.SignedCertificateT
 }
 
 // GetSCTReceipt  is a mock
-func (sa *MockSA) GetSCTReceipt(serial string, logID []byte) (sct *core.SignedCertificateTimestamp, err error) {
+func (sa *MockSA) GetSCTReceipt(serial string, logID string) (sct *core.SignedCertificateTimestamp, err error) {
 	return
 }
 
