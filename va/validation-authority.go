@@ -71,15 +71,6 @@ func verifyValidationJWS(validation *jose.JsonWebSignature, accountKey *jose.Jso
 		return fmt.Errorf("Validation JWS not signed")
 	}
 
-	// Per https://mailarchive.ietf.org/arch/msg/acme/F71iz6qq1o_QPVhJCV4dqWf-4Yc
-	// it's possible to construct a different account key that matches the
-	// signature, so check that the key on the JWS is the same as the
-	// account key.
-	headerKey := validation.Signatures[0].Header.JsonWebKey
-	if headerKey == nil || !core.KeyEquals(headerKey, accountKey) {
-		return fmt.Errorf("Validation JWS failed to verify: key in validation object did not match account key.")
-	}
-
 	payload, _, err := validation.Verify(accountKey)
 	if err != nil {
 		return fmt.Errorf("Validation JWS failed to verify: %s", err.Error())
@@ -226,6 +217,22 @@ func (va ValidationAuthorityImpl) validateSimpleHTTP(identifier core.AcmeIdentif
 	parsedJws, err := jose.ParseSigned(string(body))
 	if err != nil {
 		err = fmt.Errorf("Validation response failed to parse as JWS: %s", err.Error())
+		va.log.Debug(err.Error())
+		challenge.Status = core.StatusInvalid
+		challenge.Error = &core.ProblemDetails{
+			Type:   core.UnauthorizedProblem,
+			Detail: err.Error(),
+		}
+		return challenge, err
+	}
+
+	// Per https://mailarchive.ietf.org/arch/msg/acme/F71iz6qq1o_QPVhJCV4dqWf-4Yc
+	// it's possible to construct a different account key that matches the
+	// signature, so check that the key on the JWS is the same as the
+	// account key.
+	headerKey := parsedJws.Signatures[0].Header.JsonWebKey
+	if headerKey == nil || !core.KeyEquals(headerKey, accountKey) {
+		err = fmt.Errorf("Validation JWS failed to verify: key in validation object did not match account key.")
 		va.log.Debug(err.Error())
 		challenge.Status = core.StatusInvalid
 		challenge.Error = &core.ProblemDetails{
