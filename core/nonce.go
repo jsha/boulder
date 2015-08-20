@@ -32,10 +32,14 @@ func NewNonceService() (NonceService, error) {
 		return NonceService{}, err
 	}
 
-	// It is safe to ignore these errors because they only happen
-	// on key size and block size mismatches.
-	c, _ := aes.NewCipher(key)
-	gcm, _ := cipher.NewGCM(c)
+	c, err := aes.NewCipher(key)
+	if err != nil {
+		return NonceService{}, err
+	}
+	gcm, err := cipher.NewGCM(c)
+	if err != nil {
+		return NonceService{}, err
+	}
 
 	return NonceService{
 		earliest: 0,
