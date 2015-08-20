@@ -8,6 +8,7 @@ package main
 import (
 	"bytes"
 	"crypto/x509"
+	"encoding/base64"
 	"encoding/hex"
 	"fmt"
 	"net/http"
@@ -105,9 +106,9 @@ func (src *DBSource) Response(req *ocsp.Request) (response []byte, present bool)
 		return
 	}
 
-	log.Info(fmt.Sprintf("OCSP Response sent for CA=%s, Serial=%s", hex.EncodeToString(src.caKeyHash), serialString))
-
 	response = ocspResponse.Response
+	log.Info(fmt.Sprintf("OCSP Response sent for CA=%s, Serial=%s Body=%s", hex.EncodeToString(src.caKeyHash), serialString, base64.StdEncoding.EncodeToString(response)))
+
 	present = true
 	return
 }
