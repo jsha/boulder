@@ -75,7 +75,21 @@
             ],
             "ocsp_url": "http://localhost:4002/ocsp",
             "crl_url": "http://example.com/crl",
-            "policies": [],
+            "policies": [
+              {
+                "ID": "2.23.140.1.2.1"
+              },
+              {
+                "ID": "1.2.3.4",
+                "Qualifiers": [ {
+                  "type": "id-qt-cps",
+                  "value": "http://example.com/cps"
+                }, {
+                  "type": "id-qt-unotice",
+                  "value": "Do What Thou Wilt"
+                } ]
+              }
+            ],
             "expiry": "8760h",
             "CSRWhitelist": {
               "PublicKeyAlgorithm": true,
