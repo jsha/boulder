@@ -36,12 +36,14 @@ var ErrTooManyCNAME = errors.New("too many CNAME/DNAME lookups")
 
 // ValidationAuthorityImpl represents a VA
 type ValidationAuthorityImpl struct {
-	RA           core.RegistrationAuthority
-	log          *blog.AuditLogger
-	DNSResolver  core.DNSResolver
-	IssuerDomain string
-	TestMode     bool
-	UserAgent    string
+	RA              core.RegistrationAuthority
+	log             *blog.AuditLogger
+	DNSResolver     core.DNSResolver
+	IssuerDomain    string
+	simpleHTTPPort  int
+	simpleHTTPSPort int
+	dvsniPort       int
+	UserAgent       string
 }
 
 // NewValidationAuthorityImpl constructs a new VA, and may place it
@@ -49,7 +51,23 @@ type ValidationAuthorityImpl struct {
 func NewValidationAuthorityImpl(tm bool) ValidationAuthorityImpl {
 	logger := blog.GetAuditLogger()
 	logger.Notice("Validation Authority Starting")
-	return ValidationAuthorityImpl{log: logger, TestMode: tm}
+	// TODO(jsha): Remove TestMode entirely. Instead, the various validation ports
+	// should be exported, so the cmd file can set them based on a config.
+	if tm {
+		return ValidationAuthorityImpl{
+			log:             logger,
+			simpleHTTPPort:  5001,
+			simpleHTTPSPort: 5001,
+			dvsniPort:       5001,
+		}
+	} else {
+		return ValidationAuthorityImpl{
+			log:             logger,
+			simpleHTTPPort:  80,
+			simpleHTTPSPort: 443,
+			dvsniPort:       443,
+		}
+	}
 }
 
 // Used for audit logging
@@ -130,19 +148,20 @@ func (va ValidationAuthorityImpl) validateSimpleHTTP(identifier core.AcmeIdentif
 		va.log.Debug(fmt.Sprintf("SimpleHTTP [%s] Identifier failure", identifier))
 		return challenge, challenge.Error
 	}
-	hostName := identifier.Value
 
 	var scheme string
+	var port int
 	if input.TLS == nil || (input.TLS != nil && *input.TLS) {
 		scheme = "https"
+		port = va.simpleHTTPSPort
 	} else {
 		scheme = "http"
-	}
-	if va.TestMode {
-		hostName = "localhost:5001"
+		port = va.simpleHTTPPort
 	}
 
-	url := fmt.Sprintf("%s://%s/.well-known/acme-challenge/%s", scheme, hostName, challenge.Token)
+	hostPort := net.JoinHostPort(identifier.Value, fmt.Sprintf("%d", port))
+
+	url := fmt.Sprintf("%s://%s/.well-known/acme-challenge/%s", scheme, hostPort, challenge.Token)
 
 	// AUDIT[ Certificate Requests ] 11917fa4-10ef-4e0d-9105-bacbe7836a3c
 	va.log.Audit(fmt.Sprintf("Attempting to validate Simple%s for %s", strings.ToUpper(scheme), url))
@@ -161,7 +180,7 @@ func (va ValidationAuthorityImpl) validateSimpleHTTP(identifier core.AcmeIdentif
 		httpRequest.Header["User-Agent"] = []string{va.UserAgent}
 	}
 
-	httpRequest.Host = hostName
+	httpRequest.Host = hostPort
 	tr := &http.Transport{
 		// We are talking to a client that does not yet have a certificate,
 		// so we accept a temporary, invalid one.
@@ -289,10 +308,7 @@ func (va ValidationAuthorityImpl) validateDvsni(identifier core.AcmeIdentifier, 
 	ZName := fmt.Sprintf("%s.%s.%s", Z[:32], Z[32:], core.DVSNISuffix)
 
 	// Make a connection with SNI = nonceName
-	hostPort := identifier.Value + ":443"
-	if va.TestMode {
-		hostPort = "localhost:5001"
-	}
+	hostPort := net.JoinHostPort(identifier.Value, fmt.Sprintf("%d", va.dvsniPort))
 	va.log.Notice(fmt.Sprintf("DVSNI [%s] Attempting to validate DVSNI for %s %s",
 		identifier, hostPort, ZName))
 	conn, err := tls.DialWithDialer(&net.Dialer{Timeout: 5 * time.Second}, "tcp", hostPort, &tls.Config{
