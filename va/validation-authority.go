@@ -44,6 +44,12 @@ type ValidationAuthorityImpl struct {
 	simpleHTTPSPort int
 	dvsniPort       int
 	UserAgent       string
+
+	// If true, VA tries to contact localhost rather than provided identifier.
+	// Used in integration testing.
+	// Note: Once https://github.com/letsencrypt/boulder/pull/621 lands, we can
+	// remove this, since it will be handled by dns-test-srv returning 127.0.0.1.
+	hostnameOverride bool
 }
 
 // NewValidationAuthorityImpl constructs a new VA, and may place it
@@ -55,10 +61,11 @@ func NewValidationAuthorityImpl(tm bool) ValidationAuthorityImpl {
 	// should be exported, so the cmd file can set them based on a config.
 	if tm {
 		return ValidationAuthorityImpl{
-			log:             logger,
-			simpleHTTPPort:  5001,
-			simpleHTTPSPort: 5001,
-			dvsniPort:       5001,
+			log:              logger,
+			simpleHTTPPort:   5001,
+			simpleHTTPSPort:  5001,
+			dvsniPort:        5001,
+			hostnameOverride: true,
 		}
 	} else {
 		return ValidationAuthorityImpl{
@@ -159,7 +166,11 @@ func (va ValidationAuthorityImpl) validateSimpleHTTP(identifier core.AcmeIdentif
 		port = va.simpleHTTPPort
 	}
 
-	hostPort := net.JoinHostPort(identifier.Value, fmt.Sprintf("%d", port))
+	var host = identifier.Value
+	if va.hostnameOverride {
+		host = "localhost"
+	}
+	hostPort := net.JoinHostPort(host, fmt.Sprintf("%d", port))
 
 	url := fmt.Sprintf("%s://%s/.well-known/acme-challenge/%s", scheme, hostPort, challenge.Token)
 
@@ -307,8 +318,12 @@ func (va ValidationAuthorityImpl) validateDvsni(identifier core.AcmeIdentifier, 
 	Z := hex.EncodeToString(h.Sum(nil))
 	ZName := fmt.Sprintf("%s.%s.%s", Z[:32], Z[32:], core.DVSNISuffix)
 
+	var host = identifier.Value
+	if va.hostnameOverride {
+		host = "localhost"
+	}
 	// Make a connection with SNI = nonceName
-	hostPort := net.JoinHostPort(identifier.Value, fmt.Sprintf("%d", va.dvsniPort))
+	hostPort := net.JoinHostPort(host, fmt.Sprintf("%d", va.dvsniPort))
 	va.log.Notice(fmt.Sprintf("DVSNI [%s] Attempting to validate DVSNI for %s %s",
 		identifier, hostPort, ZName))
 	conn, err := tls.DialWithDialer(&net.Dialer{Timeout: 5 * time.Second}, "tcp", hostPort, &tls.Config{
