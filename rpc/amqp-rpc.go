@@ -345,7 +345,9 @@ func (rpc *AmqpRPCServer) processMessage(msg amqp.Delivery) {
 	if !present {
 		// AUDIT[ Misrouted Messages ] f523f21f-12d2-4c31-b2eb-ee4b7d96d60e
 		rpc.log.Audit(fmt.Sprintf(" [s<][%s][%s] Misrouted message: %s - %s - %s", rpc.serverQueue, msg.ReplyTo, msg.Type, core.B64enc(msg.Body), msg.CorrelationId))
-		msg.Reject(true) // requeue
+		if !rpc.autoAck {
+			msg.Reject(true) // requeue
+		}
 		return
 	}
 	var response RPCResponse
@@ -356,12 +358,16 @@ func (rpc *AmqpRPCServer) processMessage(msg amqp.Delivery) {
 	if err != nil {
 		// AUDIT[ Error Conditions ] 9cc4d537-8534-4970-8665-4b382abe82f3
 		rpc.log.Audit(fmt.Sprintf(" [s>][%s][%s] Error condition marshalling RPC response %s [%s]", rpc.serverQueue, msg.ReplyTo, msg.Type, msg.CorrelationId))
-		msg.Reject(true) // requeue
+		if !rpc.autoAck {
+			msg.Reject(true) // requeue
+		}
 		return
 	}
 	if response.Error.Value != "" {
 		rpc.log.Info(fmt.Sprintf(" [s>][%s][%s] %s failed, replying: %s (%s) [%s]", rpc.serverQueue, msg.ReplyTo, msg.Type, response.Error.Value, response.Error.Type, msg.CorrelationId))
-		msg.Reject(true) // requeue? Not sure if the response queue will work after this is done
+		if !rpc.autoAck {
+			msg.Reject(true) // requeue? Not sure if the response queue will work after this is done
+		}
 	}
 	rpc.log.Debug(fmt.Sprintf(" [s>][%s][%s] replying %s(%s) [%s]", rpc.serverQueue, msg.ReplyTo, msg.Type, core.B64enc(jsonResponse), msg.CorrelationId))
 	rpc.Channel.Publish(
@@ -374,7 +380,9 @@ func (rpc *AmqpRPCServer) processMessage(msg amqp.Delivery) {
 			Type:          msg.Type,
 			Body:          jsonResponse, // XXX-JWS: jws.Sign(privKey, body)
 		})
-	msg.Ack(false) // Only ack the current delivery!
+	if !rpc.autoAck {
+		msg.Ack(false) // Only ack the current delivery!
+	}
 }
 
 // Start starts the AMQP-RPC server and handles reconnections, this will block
