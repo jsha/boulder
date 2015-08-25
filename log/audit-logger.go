@@ -136,7 +136,9 @@ func GetAuditLogger() *AuditLogger {
 // Log the provided message at the appropriate level, writing to
 // both stdout and the Logger, as well as informing statsd.
 func (log *AuditLogger) logAtLevel(level, msg string) (err error) {
-	fmt.Printf("%s %s\n", time.Now().Format("2006/01/02 15:04:05"), msg)
+	if level != "Logging.Debug" {
+		fmt.Printf("%s %s\n", time.Now().Format("2006/01/02 15:04:05"), msg)
+	}
 	log.Stats.Inc(level, 1, 1.0)
 
 	switch level {

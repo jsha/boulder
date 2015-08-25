@@ -67,9 +67,14 @@ func TestRecordSanityCheck(t *testing.T) {
 }
 
 func TestChallengeSanityCheck(t *testing.T) {
+	url, _ := ParseAcmeURL("http://example.com/acme/challenge/20")
 	types := []string{ChallengeTypeSimpleHTTP, ChallengeTypeDVSNI, ChallengeTypeDNS}
 	for _, challengeType := range types {
-		chall := Challenge{Type: challengeType, Status: StatusInvalid}
+		chall := Challenge{
+			URI: url,
+			Type: challengeType,
+			Status: StatusInvalid,
+		}
 		test.Assert(t, !chall.IsSane(false), "IsSane should be false")
 		chall.Status = StatusPending
 		test.Assert(t, !chall.IsSane(false), "IsSane should be false")

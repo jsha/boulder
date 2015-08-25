@@ -86,9 +86,10 @@ const (
 
 // These types are the available challenges
 const (
-	ChallengeTypeSimpleHTTP = "simpleHttp"
-	ChallengeTypeDVSNI      = "dvsni"
-	ChallengeTypeDNS        = "dns"
+	ChallengeTypeSimpleHTTP       = "simpleHttp"
+	ChallengeTypeDVSNI            = "dvsni"
+	ChallengeTypeDNS              = "dns"
+	ChallengeTypeProofOfPosession = "proofOfPosession"
 )
 
 // The suffix appended to pseudo-domain names in DVSNI challenges
@@ -269,6 +270,11 @@ type Challenge struct {
 	// Contains information about URLs used or redirected to and IPs resolved and
 	// used
 	ValidationRecord []ValidationRecord `json:"validationRecord,omitempty"`
+
+	// Used by Proof of Posession challenges: a list of certificates whose public
+	// keys will be accepted in a Proof of Posession challenge. In
+	// base64url-encoded form.
+	Certificates []string `json:"certificates,omitempty"`
 }
 
 // RecordsSane checks the sanity of a ValidationRecord object before sending it
@@ -310,50 +316,103 @@ func (ch Challenge) IsSane(completed bool) bool {
 	if ch.Status != StatusPending {
 		return false
 	}
+	if ch.Validated != nil {
+		return false
+	}
+	if ch.URI == nil {
+		return false
+	}
+	if ch.Error != nil {
+		return false
+	}
+	// If completed, check that there's a validation object
+	if completed && ch.Validation == nil {
+		return false
+	}
 
 	switch ch.Type {
+	case ChallengeTypeProofOfPosession:
+		return proofOfPosessionIsSane(ch, completed)
 	case ChallengeTypeSimpleHTTP:
-		// check extra fields aren't used
-		if ch.Validation != nil {
-			return false
-		}
-
-		if completed && ch.TLS == nil {
-			return false
-		}
-
-		// check token is present, corrent length, and contains b64 encoded string
-		if ch.Token == "" || len(ch.Token) != 43 {
-			return false
-		}
-		if _, err := B64dec(ch.Token); err != nil {
-			return false
-		}
+		return simpleHTTPIsSane(ch, completed)
 	case ChallengeTypeDVSNI:
 		// Same as DNS
 		fallthrough
 	case ChallengeTypeDNS:
-		// check extra fields aren't used
-		if ch.TLS != nil {
-			return false
-		}
-
-		// check token is present, corrent length, and contains b64 encoded string
-		if ch.Token == "" || len(ch.Token) != 43 {
-			return false
-		}
-		if _, err := B64dec(ch.Token); err != nil {
-			return false
-		}
-
-		// If completed, check that there's a validation object
-		if completed && ch.Validation == nil {
-			return false
-		}
+		return dvsniOrDNSIsSane(ch, completed)
 	default:
 		return false
 	}
 
+	return true
+}
+
+// proofOfPosessionIsSane returns true if a ProofOfPosession challenge is sane.
+// Precondition: challenge type field is ChallengeTypeProofOfPosession
+func proofOfPosessionIsSane(ch Challenge, completed bool) bool {
+	// check extra fields aren't used
+	if ch.TLS != nil {
+		return false
+	}
+
+	// check token is present, corrent length, and contains b64 encoded string
+	if ch.Token == "" || len(ch.Token) != 43 {
+		return false
+	}
+	if _, err := B64dec(ch.Token); err != nil {
+		return false
+	}
+
+	// If completed, check that there's a validation object
+	if completed && ch.Validation == nil {
+		return false
+	}
+	return true
+}
+
+// simpleHTTPIsSane returns true if a SimpleHTTP challenge is sane.
+// Precondition: challenge type field is ChallengeTypeSimpleHTTP
+func simpleHTTPIsSane(ch Challenge, completed bool) bool {
+	// check extra fields aren't used
+	if ch.Validation != nil {
+		return false
+	}
+
+	if completed && ch.TLS == nil {
+		return false
+	}
+
+	// check token is present, corrent length, and contains b64 encoded string
+	if ch.Token == "" || len(ch.Token) != 43 {
+		return false
+	}
+	if _, err := B64dec(ch.Token); err != nil {
+		return false
+	}
+	return true
+}
+
+// dvsniOrDNSIsSane returns true if a DVSNI or DNS challenge is sane. The logic
+// happens to be the same for those two types of challenges.
+// Precondition: challenge type field is ChallengeTypeDVSNI or ChallengeTypeDNS
+func dvsniOrDNSIsSane(ch Challenge, completed bool) bool {
+	// check extra fields aren't used
+	if ch.TLS != nil {
+		return false
+	}
+
+	// check token is present, corrent length, and contains b64 encoded string
+	if ch.Token == "" || len(ch.Token) != 43 {
+		return false
+	}
+	if _, err := B64dec(ch.Token); err != nil {
+		return false
+	}
+
+	// If completed, check that there's a validation object
+	if completed && ch.Validation == nil {
+		return false
+	}
 	return true
 }
 
