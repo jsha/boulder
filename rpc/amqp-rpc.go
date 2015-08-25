@@ -104,12 +104,12 @@ func AMQPDeclareExchange(conn *amqp.Connection) error {
 }
 
 // A simplified way to declare and subscribe to an AMQP queue
-func amqpSubscribe(ch *amqp.Channel, name string, consumerName string, log *blog.AuditLogger) (<-chan amqp.Delivery, error) {
+func amqpSubscribe(ch *amqp.Channel, name string, consumerName string, log *blog.AuditLogger, durable, autoAck bool) (<-chan amqp.Delivery, error) {
 	var err error
 
 	_, err = ch.QueueDeclare(
 		name,
-		AmqpDurable,
+		durable,
 		AmqpDeleteUnused,
 		AmqpExclusive,
 		AmqpNoWait,
@@ -138,7 +138,7 @@ func amqpSubscribe(ch *amqp.Channel, name string, consumerName string, log *blog
 	msgs, err := ch.Consume(
 		name,
 		consumerName,
-		AmqpAutoAck,
+		autoAck,
 		AmqpExclusive,
 		AmqpNoLocal,
 		AmqpNoWait,
@@ -164,6 +164,8 @@ type AmqpRPCServer struct {
 	dispatchTable     map[string]func([]byte) ([]byte, error)
 	connectionHandler func(*AmqpRPCServer)
 	consumerName      string
+	autoAck           bool
+	durable           bool
 	connected         bool
 	done              bool
 	dMu               sync.Mutex
@@ -171,7 +173,7 @@ type AmqpRPCServer struct {
 
 // NewAmqpRPCServer creates a new RPC server for the given queue and will begin
 // consuming requests from the queue. To start the server you must call Start().
-func NewAmqpRPCServer(serverQueue string, handler func(*AmqpRPCServer)) (*AmqpRPCServer, error) {
+func NewAmqpRPCServer(serverQueue string, handler func(*AmqpRPCServer), durable, autoAck bool) (*AmqpRPCServer, error) {
 	log := blog.GetAuditLogger()
 	b := make([]byte, 4)
 	_, err := rand.Read(b)
@@ -185,6 +187,8 @@ func NewAmqpRPCServer(serverQueue string, handler func(*AmqpRPCServer)) (*AmqpRP
 		dispatchTable:     make(map[string]func([]byte) ([]byte, error)),
 		connectionHandler: handler,
 		consumerName:      consumerName,
+		autoAck:           autoAck,
+		durable:           durable,
 	}, nil
 }
 
@@ -276,12 +280,12 @@ func AmqpChannel(conf cmd.Config) (*amqp.Channel, error) {
 		log.Info("AMQPS: Loading TLS Options.")
 
 		if strings.HasPrefix(conf.AMQP.Server, "amqps") == false {
-			err = fmt.Errorf("AMQPS: Not using an AMQPS URL. To use AMQP instead of AMQPS, set insecure=true.")
+			err = fmt.Errorf("AMQPS: Not using an AMQPS URL. To use AMQP instead of AMQPS, set insecure=true")
 			return nil, err
 		}
 
 		if conf.AMQP.TLS == nil {
-			err = fmt.Errorf("AMQPS: No TLS configuration provided. To use AMQP instead of AMQPS, set insecure=true.")
+			err = fmt.Errorf("AMQPS: No TLS configuration provided. To use AMQP instead of AMQPS, set insecure=true")
 			return nil, err
 		}
 
@@ -341,6 +345,7 @@ func (rpc *AmqpRPCServer) processMessage(msg amqp.Delivery) {
 	if !present {
 		// AUDIT[ Misrouted Messages ] f523f21f-12d2-4c31-b2eb-ee4b7d96d60e
 		rpc.log.Audit(fmt.Sprintf(" [s<][%s][%s] Misrouted message: %s - %s - %s", rpc.serverQueue, msg.ReplyTo, msg.Type, core.B64enc(msg.Body), msg.CorrelationId))
+		msg.Reject(true) // requeue
 		return
 	}
 	var response RPCResponse
@@ -351,10 +356,12 @@ func (rpc *AmqpRPCServer) processMessage(msg amqp.Delivery) {
 	if err != nil {
 		// AUDIT[ Error Conditions ] 9cc4d537-8534-4970-8665-4b382abe82f3
 		rpc.log.Audit(fmt.Sprintf(" [s>][%s][%s] Error condition marshalling RPC response %s [%s]", rpc.serverQueue, msg.ReplyTo, msg.Type, msg.CorrelationId))
+		msg.Reject(true) // requeue
 		return
 	}
 	if response.Error.Value != "" {
 		rpc.log.Info(fmt.Sprintf(" [s>][%s][%s] %s failed, replying: %s (%s) [%s]", rpc.serverQueue, msg.ReplyTo, msg.Type, response.Error.Value, response.Error.Type, msg.CorrelationId))
+		msg.Reject(true) // requeue? Not sure if the response queue will work after this is done
 	}
 	rpc.log.Debug(fmt.Sprintf(" [s>][%s][%s] replying %s(%s) [%s]", rpc.serverQueue, msg.ReplyTo, msg.Type, core.B64enc(jsonResponse), msg.CorrelationId))
 	rpc.Channel.Publish(
@@ -367,6 +374,7 @@ func (rpc *AmqpRPCServer) processMessage(msg amqp.Delivery) {
 			Type:          msg.Type,
 			Body:          jsonResponse, // XXX-JWS: jws.Sign(privKey, body)
 		})
+	msg.Ack(false) // Only ack the current delivery!
 }
 
 // Start starts the AMQP-RPC server and handles reconnections, this will block
@@ -388,7 +396,7 @@ func (rpc *AmqpRPCServer) Start(c cmd.Config) error {
 		}
 		rpc.connectionHandler(rpc)
 
-		msgs, err := amqpSubscribe(rpc.Channel, rpc.serverQueue, rpc.consumerName, rpc.log)
+		msgs, err := amqpSubscribe(rpc.Channel, rpc.serverQueue, rpc.consumerName, rpc.log, rpc.durable, rpc.autoAck)
 		if err != nil {
 			return err
 		}
@@ -498,7 +506,9 @@ func NewAmqpRPCClient(clientQueuePrefix, serverQueue string, channel *amqp.Chann
 	}
 
 	// Subscribe to the response queue and dispatch
-	msgs, err := amqpSubscribe(rpc.channel, clientQueue, "", rpc.log)
+	// XXX: Not sure if this needs to mirror the server setup (it probably doesn't
+	// because the response queue is a different, non-durable queue...)
+	msgs, err := amqpSubscribe(rpc.channel, clientQueue, "", rpc.log, false, true)
 	if err != nil {
 		return nil, err
 	}

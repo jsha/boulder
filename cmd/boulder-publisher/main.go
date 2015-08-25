@@ -15,7 +15,7 @@ import (
 )
 
 func main() {
-	app := cmd.NewAppShell("boulder-publisher")
+	app := cmd.NewAppShell("boulder-publisher", "Submits issued certificates to CT logs")
 	app.Action = func(c cmd.Config) {
 		stats, err := statsd.NewClient(c.Statsd.Server, c.Statsd.Prefix)
 		cmd.FailOnError(err, "Could not connect to statsd")
@@ -45,7 +45,7 @@ func main() {
 			pubi.SA = &sac
 		}
 
-		pubs, err := rpc.NewAmqpRPCServer(c.AMQP.Publisher.Server, connectionHandler)
+		pubs, err := rpc.NewAmqpRPCServer(c.AMQP.Publisher.Server, connectionHandler, true, false)
 		cmd.FailOnError(err, "Unable to create PA RPC server")
 		rpc.NewPublisherAuthorityServer(pubs, &pubi)
 
