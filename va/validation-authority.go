@@ -504,6 +504,10 @@ func parseHTTPConnError(err error) core.ProblemType {
 	return core.ConnectionProblem
 }
 
+func (va ValidationAuthorityImpl) validateProofOfPosession(identifier core.AcmeIdentifier, input core.Challenge, accountKey jose.JsonWebKey) (core.Challenge, error) {
+
+}
+
 func (va ValidationAuthorityImpl) validateDNS(identifier core.AcmeIdentifier, input core.Challenge, accountKey jose.JsonWebKey) (core.Challenge, error) {
 	challenge := input
 
@@ -587,6 +591,8 @@ func (va ValidationAuthorityImpl) validate(authz core.Authorization, challengeIn
 			authz.Challenges[challengeIndex], err = va.validateDvsni(authz.Identifier, authz.Challenges[challengeIndex], accountKey)
 		case core.ChallengeTypeDNS:
 			authz.Challenges[challengeIndex], err = va.validateDNS(authz.Identifier, authz.Challenges[challengeIndex], accountKey)
+		case core.ChallengeTypeProofOfPosession:
+			authz.Challenges[challengeIndex], err = va.validateProofOfPosession(authz.Identifier, authz.Challenges[challengeIndex], accountKey)
 		}
 
 		if err != nil {
