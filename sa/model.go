@@ -41,6 +41,7 @@ type challModel struct {
 	TLS              *bool           `db:"tls"`
 	Validation       []byte          `db:"validation"`
 	ValidationRecord []byte          `db:"validationRecord"`
+	CertificateIDs   []byte          `db:"certificateIDs"`
 
 	LockCol int64
 }
@@ -90,6 +91,7 @@ func challengeToModel(c *core.Challenge, authID string) (*challModel, error) {
 		Validated:       c.Validated,
 		Token:           c.Token,
 		TLS:             c.TLS,
+		CertificateIDs:  c.CertificateIDs,
 	}
 	if c.Validation != nil {
 		cm.Validation = []byte(c.Validation.FullSerialize())
@@ -123,16 +125,24 @@ func challengeToModel(c *core.Challenge, authID string) (*challModel, error) {
 		}
 		cm.ValidationRecord = vrJSON
 	}
+	if c.CertificateIDs != nil {
+		certIDJSON, err := json.Marshal(c.CertificateIDs)
+		if err != nil {
+			return nil, err
+		}
+		cm.CertificateIDs = certIDJSON
+	}
 	return &cm, nil
 }
 
 func modelToChallenge(cm *challModel) (core.Challenge, error) {
 	c := core.Challenge{
-		Type:      cm.Type,
-		Status:    cm.Status,
-		Validated: cm.Validated,
-		Token:     cm.Token,
-		TLS:       cm.TLS,
+		Type:           cm.Type,
+		Status:         cm.Status,
+		Validated:      cm.Validated,
+		Token:          cm.Token,
+		TLS:            cm.TLS,
+		CertificateIDs: cm.CertificateIDs,
 	}
 	if len(cm.URI) > 0 {
 		uri, err := core.ParseAcmeURL(cm.URI)

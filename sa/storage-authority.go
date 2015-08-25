@@ -192,30 +192,71 @@ func (ssa *SQLStorageAuthority) GetAuthorization(id string) (authz core.Authoriz
 		authD := authObj.(*authzModel)
 		authz = authD.Authorization
 	}
-
-	var challObjs []challModel
-	_, err = tx.Select(
-		&challObjs,
-		getChallengesQuery,
-		map[string]interface{}{"authID": authz.ID},
-	)
+	// TODO(jsha): Don't need a transaction here.
+	authz.Challenges, err = ssa.getChallenges(tx, authz.ID)
 	if err != nil {
+		err = fmt.Errorf("Failure getting challenges for %s: %s", authz.ID, err)
 		tx.Rollback()
 		return
+	}
+
+	err = tx.Commit()
+	return
+}
+
+func (ssa *SQLStorageAuthority) getChallenges(tx *gorp.Transaction, authID string) ([]core.Challenge, error) {
+	var challObjs []challModel
+	_, err := tx.Select(
+		&challObjs,
+		getChallengesQuery,
+		map[string]interface{}{"authID": authID},
+	)
+	if err != nil {
+		return nil, err
 	}
 	var challs []core.Challenge
 	for _, c := range challObjs {
 		chall, err := modelToChallenge(&c)
 		if err != nil {
-			tx.Rollback()
-			return core.Authorization{}, err
+			return nil, err
+		}
+		// For Proof of Posession challenges, hydrate the Certificates field based
+		// off the stored CertificateIDs.
+		chall.Certificates, err = ssa.getCertificates(tx, c.CertificateIDs)
+		if err != nil {
+			return nil, err
 		}
 		challs = append(challs, chall)
 	}
-	authz.Challenges = challs
+	return challs, nil
+}
 
-	err = tx.Commit()
-	return
+// getCertificates fetches the DER form of a set of certificates identified by
+// their IDs in the ExternalCert table.
+func (ssa *SQLStorageAuthority) getCertificates(tx *gorp.Transaction, certificateIDs []byte) ([]core.JSONBuffer, error) {
+	// Do nothing if there are no stored IDs.
+	if certificateIDs == nil {
+		return nil, nil
+	}
+	var idsParsed []int64
+	err := json.Unmarshal(certificateIDs, &idsParsed)
+	if err != nil {
+		return nil, err
+	}
+	var certificatesDER []core.JSONBuffer
+	for _, certID := range idsParsed {
+		var externalCert core.ExternalCert
+		_, err := tx.Select(
+			&externalCert,
+			"SELECT * FROM ExternalCert WHERE id = :certID ORDER BY id ASC",
+			map[string]interface{}{"certID": certID},
+		)
+		if err != nil {
+			return nil, err
+		}
+		certificatesDER = append(certificatesDER, core.JSONBuffer(externalCert.CertDER))
+	}
+	return certificatesDER, nil
 }
 
 // GetLatestValidAuthorization gets the valid authorization with biggest expire date for a given domain and registrationId

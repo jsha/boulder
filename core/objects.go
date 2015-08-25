@@ -274,7 +274,10 @@ type Challenge struct {
 	// Used by Proof of Posession challenges: a list of certificates whose public
 	// keys will be accepted in a Proof of Posession challenge. In
 	// base64url-encoded form.
-	Certificates []string `json:"certificates,omitempty"`
+	Certificates []JSONBuffer `json:"certificates,omitempty"`
+
+	// Used internally only. Removed before presenting to the user.
+	CertificateIDs []byte
 }
 
 // RecordsSane checks the sanity of a ValidationRecord object before sending it
@@ -544,6 +547,7 @@ type IdentifierData struct {
 // ExternalCert holds information about certificates issued by other CAs,
 // obtained through Certificate Transparency, the SSL Observatory, or scans.io.
 type ExternalCert struct {
+	ID       int       `db:"id"`         // Autoincrement ID in the DB.
 	SHA1     string    `db:"sha1"`       // The hex encoding of the SHA-1 hash of this cert
 	Issuer   string    `db:"issuer"`     // The Issuer field of this cert
 	Subject  string    `db:"subject"`    // The Subject field of this cert
