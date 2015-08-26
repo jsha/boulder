@@ -10,6 +10,7 @@ CREATE TABLE `sctReceipts` (
   `extensions` mediumblob,
   `signature` mediumblob,
   `certificateSerial` varchar(255) NOT NULL,
+  `LockCol` bigint(20) DEFAULT NULL,
   PRIMARY KEY (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8;
 
