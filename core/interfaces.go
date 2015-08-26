@@ -138,7 +138,6 @@ type StorageAuthority interface {
 
 // CertificateAuthorityDatabase represents an atomic sequence source
 type CertificateAuthorityDatabase interface {
-	CreateTablesIfNotExists() error
 	IncrementAndGetSerial(*gorp.Transaction) (int64, error)
 	Begin() (*gorp.Transaction, error)
 }

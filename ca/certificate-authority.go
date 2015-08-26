@@ -30,8 +30,6 @@ import (
 // Config defines the JSON configuration file schema
 type Config struct {
 	Profile      string
-	TestMode     bool
-	DBDriver     string
 	DBConnect    string
 	SerialPrefix int
 	Key          KeyConfig
@@ -198,20 +196,6 @@ func loadKey(keyConfig KeyConfig) (priv crypto.Signer, err error) {
 	pkcs11Config := keyConfig.PKCS11
 	priv, err = pkcs11key.New(pkcs11Config.Module,
 		pkcs11Config.Token, pkcs11Config.PIN, pkcs11Config.Label)
-	return
-}
-
-func loadIssuerKey(filename string) (issuerKey crypto.Signer, err error) {
-	if filename == "" {
-		err = errors.New("IssuerKey must be provided in test mode.")
-		return
-	}
-
-	pem, err := ioutil.ReadFile(filename)
-	if err != nil {
-		return
-	}
-	issuerKey, err = helpers.ParsePrivateKeyPEM(pem)
 	return
 }
 
