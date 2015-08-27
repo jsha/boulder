@@ -119,12 +119,12 @@ func SetSQLDebug(dbMap *gorp.DbMap, state bool) {
 
 // SQLLogger adapts the AuditLogger to a format GORP can use.
 type SQLLogger struct {
-	log *blog.AuditLogger
+	Log blog.SyslogWriter
 }
 
 // Printf adapts the AuditLogger to GORP's interface
 func (log *SQLLogger) Printf(format string, v ...interface{}) {
-	log.log.Debug(fmt.Sprintf(format, v...))
+	log.Log.Debug(fmt.Sprintf(format, v...))
 }
 
 // initTables constructs the table map for the ORM.
