@@ -452,7 +452,9 @@ func TestGetSCTReceipts(t *testing.T) {
 	sqlSCTs, err := sa.GetSCTReceipts(sctCertSerial)
 	test.AssertNotError(t, err, "Failed to retrieve multiple recipets")
 	test.Assert(t, len(sqlSCTs) == 2, "Incorect number of SCTs returned")
+
 	fmt.Println(sct.LogID, sqlSCTs[0].LogID)
+	fmt.Println(secondSCT.LogID, sqlSCTs[1].LogID)
 
 	test.Assert(t, sqlSCTs[0].SCTVersion == sct.SCTVersion, "Invalid SCT version for first receipt")
 	test.Assert(t, sqlSCTs[0].LogID == sct.LogID, "Invalid log ID for first receipt")

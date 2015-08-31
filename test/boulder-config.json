@@ -168,8 +168,6 @@
   },
 
   "publisher": {
-    "dbDriver": "sqlite3",
-    "dbName": ":memory:",
     "ct": {
       "logs": [
         {

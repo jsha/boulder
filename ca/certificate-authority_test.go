@@ -352,6 +352,14 @@ type testCtx struct {
 	cleanUp  func()
 }
 
+type mockPublisher struct {
+	// empty
+}
+
+func (*mockPublisher) SubmitToCT([]byte) error {
+	return nil
+}
+
 func setup(t *testing.T) *testCtx {
 	// Create an SA
 	dbMap, err := sa.NewDbMap(saDBConnStr)
@@ -437,7 +445,7 @@ func TestRevoke(t *testing.T) {
 	if err != nil {
 		return
 	}
-	pub, _ := publisher.NewPublisherAuthorityImpl(nil)
+	pub := mockPublisher{}
 	ca.Publisher = &pub
 	ca.SA = ctx.sa
 	ca.MaxKeySize = 4096

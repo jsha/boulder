@@ -165,9 +165,7 @@ type Config struct {
 	}
 
 	Publisher struct {
-		DBDriver string
-		DBName   string
-		CT       *publisher.CTConfig
+		CT *publisher.CTConfig
 
 		// DebugAddr is the address to run the /debug handlers on.
 		DebugAddr string

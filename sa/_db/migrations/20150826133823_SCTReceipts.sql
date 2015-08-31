@@ -4,7 +4,7 @@
 
 CREATE TABLE `sctReceipts` (
   `id` bigint(20) NOT NULL AUTO_INCREMENT,
-  `sctVersion` tinyint(3) NOT NULL,
+  `sctVersion` tinyint(1) NOT NULL,
   `logID` varchar(255) NOT NULL,
   `timestamp` bigint(20) NOT NULL,
   `extensions` mediumblob,
@@ -12,8 +12,7 @@ CREATE TABLE `sctReceipts` (
   `certificateSerial` varchar(255) NOT NULL,
   `LockCol` bigint(20) DEFAULT NULL,
   PRIMARY KEY (`id`),
-  UNIQUE KEY `log_serial` (`logID`,`certificateSerial`)
-
+  UNIQUE KEY `certificateSerial_logID` (`certificateSerial`, `logID`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8;
 
 -- +goose Down
