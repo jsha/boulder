@@ -285,12 +285,12 @@ func (sa *MockSA) UpdateRegistration(reg core.Registration) (err error) {
 }
 
 // GetSCTReceipts is a mock
-func (sa *MockSA) GetSCTReceipts(serial string) (scts []*core.SignedCertificateTimestamp, err error) {
+func (sa *MockSA) GetSCTReceipts(serial string) (scts []core.SignedCertificateTimestamp, err error) {
 	return
 }
 
 // GetSCTReceipt  is a mock
-func (sa *MockSA) GetSCTReceipt(serial string, logID string) (sct *core.SignedCertificateTimestamp, err error) {
+func (sa *MockSA) GetSCTReceipt(serial string, logID string) (sct core.SignedCertificateTimestamp, err error) {
 	return
 }
 

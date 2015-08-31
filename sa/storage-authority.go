@@ -617,40 +617,34 @@ func (ssa *SQLStorageAuthority) AlreadyDeniedCSR(names []string) (already bool, 
 }
 
 // GetSCTReceipts gets all of the SCT receipts for a given certificate serial
-func (ssa *SQLStorageAuthority) GetSCTReceipts(serial string) (receipts []*core.SignedCertificateTimestamp, err error) {
-	receiptObjs, err := ssa.dbMap.Select(
-		&core.SignedCertificateTimestamp{},
-		"SELECT * FROM sctReceipts WHERE certificateSerial = :serial",
+func (ssa *SQLStorageAuthority) GetSCTReceipts(serial string) (receipts []core.SignedCertificateTimestamp, err error) {
+	_, err = ssa.dbMap.Select(
+		&receipts,
+		"SELECT * FROM sctReceipts WHERE certificateSerial = :serial ORDER BY logID DESC",
 		map[string]interface{}{"serial": serial},
 	)
 	if err != nil {
 		return
 	}
-	if len(receiptObjs) == 0 {
+	if len(receipts) == 0 {
 		return nil, sql.ErrNoRows
-	}
-	for _, receiptObj := range receiptObjs {
-		receipt := receiptObj.(*core.SignedCertificateTimestamp)
-		receipts = append(receipts, receipt)
 	}
 	return
 }
 
 // GetSCTReceipt gets a specific SCT receipt for a given certificate serial and
 // CT log ID
-func (ssa *SQLStorageAuthority) GetSCTReceipt(serial string, logID string) (*core.SignedCertificateTimestamp, error) {
-	// TODO(rolandshoemaker): This could be a better query
-	receipts, err := ssa.GetSCTReceipts(serial)
-	if err != nil {
-		return nil, err
-	}
-	for _, receipt := range receipts {
-		if receipt.LogID == logID {
-			return receipt, nil
-		}
-	}
+func (ssa *SQLStorageAuthority) GetSCTReceipt(serial string, logID string) (receipt core.SignedCertificateTimestamp, err error) {
+	err = ssa.dbMap.SelectOne(
+		&receipt,
+		"SELECT * FROM sctReceipts WHERE certificateSerial = :serial AND logID = :logID",
+		map[string]interface{}{
+			"serial": serial,
+			"logID":  logID,
+		},
+	)
 
-	return nil, sql.ErrNoRows
+	return
 }
 
 // AddSCTReceipt adds a new SCT receipt to the (append-only) sctReceipts table
