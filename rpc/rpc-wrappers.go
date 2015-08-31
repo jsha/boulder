@@ -1002,7 +1002,7 @@ func NewStorageAuthorityServer(rpc RPCServer, impl core.StorageAuthority) error 
 		}
 
 		sct, err := impl.GetSCTReceipt(gsctReq.Serial, gsctReq.LogID)
-		jsonResponse, err := json.Marshal(core.RPCSignedCertificateTimestamp(*sct))
+		jsonResponse, err := json.Marshal(core.RPCSignedCertificateTimestamp(sct))
 		if err != nil {
 			// AUDIT[ Error Conditions ] 9cc4d537-8534-4970-8665-4b382abe82f3
 			errorCondition(MethodGetSCTReceipt, err, req)
@@ -1294,14 +1294,44 @@ func (cac StorageAuthorityClient) AlreadyDeniedCSR(names []string) (exists bool,
 	return
 }
 
-func (cac StorageAuthorityClient) GetSCTReceipts(serial string) ([]*core.SignedCertificateTimestamp, error) {
-	return nil, nil
+func (cac StorageAuthorityClient) GetSCTReceipts(serial string) (receipts []core.SignedCertificateTimestamp, err error) {
+	response, err := cac.rpc.DispatchSync(MethodGetSCTReceipts, []byte(serial))
+	if err != nil {
+		return
+	}
+
+	err = json.Unmarshal(response, &receipts)
+	return
 }
 
-func (cac StorageAuthorityClient) GetSCTReceipt(serial string, logID string) (*core.SignedCertificateTimestamp, error) {
-	return nil, nil
+func (cac StorageAuthorityClient) GetSCTReceipt(serial string, logID string) (receipt core.SignedCertificateTimestamp, err error) {
+	var gsctReq struct {
+		Serial string
+		LogID  string
+	}
+	gsctReq.Serial = serial
+	gsctReq.LogID = logID
+
+	data, err := json.Marshal(gsctReq)
+	if err != nil {
+		return
+	}
+
+	response, err := cac.rpc.DispatchSync(MethodGetSCTReceipt, data)
+	if err != nil {
+		return
+	}
+
+	err = json.Unmarshal(response, receipt)
+	return
 }
 
-func (cac StorageAuthorityClient) AddSCTReceipt(sct core.SignedCertificateTimestamp) error {
-	return nil
+func (cac StorageAuthorityClient) AddSCTReceipt(sct core.SignedCertificateTimestamp) (err error) {
+	data, err := json.Marshal(sct)
+	if err != nil {
+		return
+	}
+
+	_, err = cac.rpc.DispatchSync(MethodAddSCTReceipt, data)
+	return
 }

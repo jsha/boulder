@@ -10,7 +10,6 @@ import (
 	"crypto/ecdsa"
 	"crypto/sha256"
 	"crypto/x509"
-	"database/sql"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -186,11 +185,6 @@ func (pub *PublisherAuthorityImpl) submitToCTLog(serial string, jsonSubmission [
 		return err
 	}
 
-	// Do something with the signedCertificateTimestamp, we might want to
-	// include something in the CertificateStatus table or such to indicate
-	// that it has been successfully submitted to CT logs so that we can retry
-	// sometime in the future if it didn't work this time. (In the future this
-	// will be needed anyway for putting SCT in OCSP responses)
 	pub.log.Notice(fmt.Sprintf(
 		"Submitted certificate to CT log [Serial: %s, Log URI: %s, Retries: %d, Signature: %x]",
 		serial,
@@ -198,31 +192,20 @@ func (pub *PublisherAuthorityImpl) submitToCTLog(serial string, jsonSubmission [
 		retries, sct.Signature,
 	))
 
-	// Set certificate serial and add SCT to SQL
+	// Set certificate serial and add SCT to DB
 	sct.CertificateSerial = serial
-
-	// TODO(rolandshoemaker): there shouldn't be any existing receipts (although
-	// since logs should return the same receipt for a duplicate submission we
-	// may be able to ignore this and also ignore any existing row errors for
-	// the AddToSCTReceipt call below)
-	existingreceipt, err := pub.SA.GetSCTReceipt(sct.CertificateSerial, log.ID)
-	if err != nil && err != sql.ErrNoRows {
-		// AUDIT[ Error Conditions ] 9cc4d537-8534-4970-8665-4b382abe82f3
-		pub.log.AuditErr(fmt.Errorf(
-			"Error checking for existing SCT receipt for [%s to %s]: %s",
-			sct.CertificateSerial,
-			log.URI,
-			err,
-		))
-	}
-	if existingreceipt != nil {
-		// AUDIT[ Error Conditions ] 9cc4d537-8534-4970-8665-4b382abe82f3
-		err := fmt.Errorf("Existing SCT receipt for [%s to %s]", sct.CertificateSerial, log.URI)
-		pub.log.AuditErr(err)
-		return err
-	}
-	err = pub.SA.AddSCTReceipt(sct)
+	err := pub.SA.AddSCTReceipt(sct)
 	if err != nil {
+		if strings.Contains(strings.ToLower(err.Error()), "duplicate entry") {
+			// We might want to check that the returned SCT == the SCT that we already
+			// have on file, but for now just ignore.
+			pub.log.Notice(fmt.Sprintf(
+				"SCT receipt has previously been submitted & stored [Serial: %s, Log URI: %s]",
+				serial,
+				log.URI,
+			))
+			return nil
+		}
 		// AUDIT[ Error Conditions ] 9cc4d537-8534-4970-8665-4b382abe82f3
 		pub.log.AuditErr(fmt.Errorf(
 			"Error adding SCT receipt for [%s to %s]: %s",

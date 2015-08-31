@@ -393,6 +393,7 @@ func TestAddSCTReceipt(t *testing.T) {
 	// Append only and unique on signature and across LogID and CertificateSerial
 	err = sa.AddSCTReceipt(sct)
 	test.AssertError(t, err, "Incorrectly added duplicate SCT receipt")
+	fmt.Println(err)
 }
 
 func TestGetSCTReceipt(t *testing.T) {
