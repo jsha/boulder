@@ -68,7 +68,7 @@ func main() {
 			rai.SA = &sac
 		}
 
-		ras, err := rpc.NewAmqpRPCServer(c.AMQP.RA.Server, connectionHandler, false, true)
+		ras, err := rpc.NewAmqpRPCServer(c.AMQP.RA.Server, connectionHandler)
 		cmd.FailOnError(err, "Unable to create RA RPC server")
 		rpc.NewRegistrationAuthorityServer(ras, &rai)
 

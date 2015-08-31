@@ -45,7 +45,7 @@ func main() {
 			pubi.SA = &sac
 		}
 
-		pubs, err := rpc.NewAmqpRPCServer(c.AMQP.Publisher.Server, connectionHandler, true, false)
+		pubs, err := rpc.NewAmqpRPCServer(c.AMQP.Publisher.Server, connectionHandler)
 		cmd.FailOnError(err, "Unable to create PA RPC server")
 		rpc.NewPublisherAuthorityServer(pubs, &pubi)
 

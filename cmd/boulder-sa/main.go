@@ -42,7 +42,7 @@ func main() {
 
 		connectionHandler := func(*rpc.AmqpRPCServer) {}
 
-		sas, err := rpc.NewAmqpRPCServer(c.AMQP.SA.Server, connectionHandler, false, true)
+		sas, err := rpc.NewAmqpRPCServer(c.AMQP.SA.Server, connectionHandler)
 		cmd.FailOnError(err, "Unable to create SA RPC server")
 		rpc.NewStorageAuthorityServer(sas, sai)
 
