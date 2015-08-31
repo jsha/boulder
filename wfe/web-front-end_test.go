@@ -150,7 +150,7 @@ func (ra *MockRegistrationAuthority) UpdateAuthorization(authz core.Authorizatio
 	return authz, nil
 }
 
-func (ra *MockRegistrationAuthority) RevokeCertificate(cert x509.Certificate) error {
+func (ra *MockRegistrationAuthority) RevokeCertificate(cert x509.Certificate, reason core.RevocationCode, reg *int64) error {
 	return nil
 }
 
@@ -171,7 +171,7 @@ func (ca *MockCA) GenerateOCSP(xferObj core.OCSPSigningRequest) (ocsp []byte, er
 	return
 }
 
-func (ca *MockCA) RevokeCertificate(serial string, reasonCode int) (err error) {
+func (ca *MockCA) RevokeCertificate(serial string, reasonCode core.RevocationCode) (err error) {
 	return
 }
 
@@ -558,11 +558,11 @@ func TestChallenge(t *testing.T) {
 	}
 
 	challengeURL := url.URL(*challengeAcme)
-	wfe.challenge(authz, responseWriter, &http.Request{
+	wfe.challenge(responseWriter, &http.Request{
 		Method: "POST",
 		URL:    &challengeURL,
 		Body:   makeBody(signRequest(t, `{"resource":"challenge"}`, &wfe.nonceService)),
-	}, requestEvent{})
+	}, authz, &requestEvent{})
 
 	test.AssertEquals(
 		t, responseWriter.Header().Get("Location"),

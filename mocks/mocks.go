@@ -255,7 +255,7 @@ func (sa *MockSA) FinalizeAuthorization(authz core.Authorization) (err error) {
 }
 
 // MarkCertificateRevoked is a mock
-func (sa *MockSA) MarkCertificateRevoked(serial string, ocspResponse []byte, reasonCode int) (err error) {
+func (sa *MockSA) MarkCertificateRevoked(serial string, ocspResponse []byte, reasonCode core.RevocationCode) (err error) {
 	return
 }
 
