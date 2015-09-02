@@ -17,6 +17,7 @@ import (
 	"encoding/asn1"
 	"encoding/base64"
 	"encoding/json"
+	"encoding/pem"
 	"errors"
 	"fmt"
 	"hash"
@@ -356,11 +357,33 @@ func LoadCert(filename string) (issuerCert *x509.Certificate, err error) {
 	return
 }
 
-func LoadCertBundle(filename string) (bundle []*x509.Certificate, err error) {
+// Loads a PEM bundle of certificates from disk
+func LoadCertBundle(filename string) ([]*x509.Certificate, error) {
 	bundleBytes, err := ioutil.ReadFile(filename)
 	if err != nil {
-		return
+		return nil, err
 	}
-	bundle, err = x509.ParseCertificates(bundleBytes)
-	return
+	var bundle []*x509.Certificate
+	var block *pem.Block
+	rest := bundleBytes
+	for {
+		block, rest = pem.Decode(rest)
+		if block == nil {
+			break
+		}
+		if block.Type != "CERTIFICATE" {
+			return nil, fmt.Errorf("Block has invalid type: %s", block.Type)
+		}
+		cert, err := x509.ParseCertificate(block.Bytes)
+		if err != nil {
+			return nil, err
+		}
+		bundle = append(bundle, cert)
+	}
+
+	if len(bundle) == 0 {
+		return nil, fmt.Errorf("Bundle doesn't contain any certificates")
+	}
+
+	return bundle, nil
 }

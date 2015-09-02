@@ -95,34 +95,34 @@ type PublisherAuthorityImpl struct {
 
 // NewPublisherAuthorityImpl creates a Publisher that will submit certificates
 // to any CT logs configured in CTConfig
-func NewPublisherAuthorityImpl(ctConfig *CTConfig) (PublisherAuthorityImpl, error) {
-	var pub PublisherAuthorityImpl
-
+func NewPublisherAuthorityImpl(ctConfig *CTConfig) (pub PublisherAuthorityImpl, err error) {
 	logger := blog.GetAuditLogger()
 	logger.Notice("Publisher Authority Starting")
 	pub.log = logger
 
 	if ctConfig == nil {
-		return pub, fmt.Errorf("No CT configuration provided")
+		err = fmt.Errorf("No CT configuration provided")
+		return
+	}
+	if ctConfig.BundleFilename == "" {
+		err = fmt.Errorf("No CT submission bundle provided")
+		return
 	}
 	pub.CT = ctConfig
-	if ctConfig.BundleFilename == "" {
-		return pub, fmt.Errorf("No CT submission bundle provided")
-	}
 	bundle, err := core.LoadCertBundle(ctConfig.BundleFilename)
 	if err != nil {
-		return pub, err
+		return
 	}
 	for _, cert := range bundle {
 		pub.CT.IssuerBundle = append(pub.CT.IssuerBundle, base64.StdEncoding.EncodeToString(cert.Raw))
 	}
 	ctBackoff, err := time.ParseDuration(ctConfig.SubmissionBackoffString)
 	if err != nil {
-		return pub, err
+		return
 	}
 	pub.CT.SubmissionBackoff = ctBackoff
 
-	return pub, nil
+	return
 }
 
 func (pub *PublisherAuthorityImpl) submitToCTLog(serial string, jsonSubmission []byte, log LogDescription, client http.Client) error {

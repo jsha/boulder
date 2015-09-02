@@ -101,6 +101,8 @@ CspkK71IGqM9UwwMtCZBp0fK/Xv9o1d85paXcJ/aH8zg6EK4UkuXDFnLsg1LrIru
 OY8B7wwvZTLzU6WWs781TJXx2CE04PneeeArLpVLkiGIWjk=
 -----END CERTIFICATE-----`
 
+const issuerPath = "../test/test-ca.pem"
+
 func logSrv(t *testing.T, stopChan, waitChan chan bool) {
 	// Reset any existing handlers
 	http.DefaultServeMux = http.NewServeMux()
@@ -136,11 +138,11 @@ func logSrv(t *testing.T, stopChan, waitChan chan bool) {
 
 func TestNewPublisherAuthorityImpl(t *testing.T) {
 	// Allowed
-	ctConf := CTConfig{SubmissionBackoffString: "0s", BundleFilename: "example-bundle.der"}
+	ctConf := CTConfig{SubmissionBackoffString: "0s", BundleFilename: issuerPath}
 	_, err := NewPublisherAuthorityImpl(&ctConf)
 	test.AssertNotError(t, err, "Couldn't create new PublisherAuthority")
 
-	ctConf = CTConfig{Logs: []LogDescription{LogDescription{URI: "http://localhost:8080/ct/v1/add-chain"}}, SubmissionBackoffString: "0s", BundleFilename: "example-bundle.der"}
+	ctConf = CTConfig{Logs: []LogDescription{LogDescription{URI: "http://localhost:8080/ct/v1/add-chain"}}, SubmissionBackoffString: "0s", BundleFilename: issuerPath}
 	_, err = NewPublisherAuthorityImpl(&ctConf)
 	test.AssertNotError(t, err, "Couldn't create new PublisherAuthority")
 }
@@ -176,7 +178,7 @@ func TestSubmitToCT(t *testing.T) {
 
 	intermediatePEM, _ := pem.Decode([]byte(testIntermediate))
 
-	pub, err := NewPublisherAuthorityImpl(&CTConfig{Logs: []LogDescription{LogDescription{URI: "http://localhost:8080/ct/v1/add-chain"}}, SubmissionBackoffString: "0s", BundleFilename: "example-bundle.der"})
+	pub, err := NewPublisherAuthorityImpl(&CTConfig{Logs: []LogDescription{LogDescription{URI: "http://localhost:8080/ct/v1/add-chain"}}, SubmissionBackoffString: "0s", BundleFilename: issuerPath})
 	pub.CT.IssuerBundle = append(pub.CT.IssuerBundle, base64.StdEncoding.EncodeToString(intermediatePEM.Bytes))
 	pub.SA = &mocks.MockSA{}
 	test.AssertNotError(t, err, "Couldn't create new PublisherAuthority")

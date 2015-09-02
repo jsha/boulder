@@ -181,7 +181,7 @@
       ],
       "submissionRetries": 1,
       "submissionBackoff": "1s",
-      "intermediateBundleFilename": "publisher/example-bundle.der"
+      "intermediateBundleFilename": "test/test-ca.pem"
     },
     "debugAddr": "localhost:8009"
   },
