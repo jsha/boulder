@@ -19,7 +19,7 @@ if [ "x${TRAVIS_PULL_REQUEST}" != "x" ] ; then
   TRIGGER_COMMIT=${revs##* }
 fi
 
-GITHUB_SECRET_FILE="$(pwd)/test/github-secret.json"
+GITHUB_SECRET_FILE="/tmp/github-secret.json"
 
 start_context() {
   CONTEXT="$1"
