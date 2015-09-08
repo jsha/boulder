@@ -250,4 +250,6 @@ case $? in
 esac
 end_context #test/integration
 
+mysql -u root -e "show full processlist;"
+mysql -u root -e "show engine innodb status;"
 exit ${FAILURE}
