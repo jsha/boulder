@@ -390,7 +390,7 @@ func TestAddSCTReceipt(t *testing.T) {
 		Signature:         sigBytes,
 		CertificateSerial: sctCertSerial,
 	}
-	sa, cleanup := initSA(t)
+	sa, _, cleanup := initSA(t)
 	defer cleanup()
 	err = sa.AddSCTReceipt(sct)
 	test.AssertNotError(t, err, "Failed to add SCT receipt")
@@ -410,7 +410,7 @@ func TestGetSCTReceipt(t *testing.T) {
 		Signature:         sigBytes,
 		CertificateSerial: sctCertSerial,
 	}
-	sa, cleanup := initSA(t)
+	sa, _, cleanup := initSA(t)
 	defer cleanup()
 	err = sa.AddSCTReceipt(sct)
 	test.AssertNotError(t, err, "Failed to add SCT receipt")
@@ -436,7 +436,7 @@ func TestGetSCTReceipts(t *testing.T) {
 		Signature:         sigBytes,
 		CertificateSerial: sctCertSerial,
 	}
-	sa, cleanup := initSA(t)
+	sa, _, cleanup := initSA(t)
 	defer cleanup()
 	err = sa.AddSCTReceipt(sct)
 	test.AssertNotError(t, err, "Failed to add SCT receipt")
