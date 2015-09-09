@@ -188,8 +188,9 @@ type Config struct {
 		IssuerCert string
 		MaxKeySize int
 
-		DNSResolver string
-		DNSTimeout  string
+		DNSResolver               string
+		DNSTimeout                string
+		DNSAllowLoopbackAddresses bool
 	}
 
 	CertChecker struct {
