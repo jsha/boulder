@@ -149,9 +149,9 @@ func (ra *RegistrationAuthorityImpl) NewAuthorization(request core.Authorization
 	// Create validations, but we have to update them with URIs later
 	challenges, combinations := ra.PA.ChallengesFor(identifier)
 
-	for _, challenge := range challenges {
+	for i, _ := range challenges {
 		// Add the account key used to generate the challenge
-		challenge.AccountKey = &reg.Key
+		challenges[i].AccountKey = &reg.Key
 	}
 
 	// Partially-filled object
