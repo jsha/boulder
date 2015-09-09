@@ -785,17 +785,13 @@ func (wfe *WebFrontEndImpl) Challenge(
 		notFound()
 		return
 	}
-	challenge, err := wfe.SA.GetChallenge(challengeID)
-	if err != nil {
-		notFound()
-		return
-	}
 	// Check that the requested challenge exists within the authorization
-	challengeIndex := authz.FindChallenge(challenge.ID)
+	challengeIndex := authz.FindChallenge(challengeID)
 	if challengeIndex == -1 {
 		notFound()
 		return
 	}
+	challenge := authz.Challenges[challengeIndex]
 
 	logEvent.Extra["ChallengeType"] = challenge.Type
 	logEvent.Extra["AuthorizationRegistrationID"] = authz.RegistrationID

@@ -717,7 +717,7 @@ func TestChallenge(t *testing.T) {
 		RegistrationID: 1,
 	}
 
-	wfe.challenge(responseWriter,
+	wfe.Challenge(responseWriter,
 		makePostRequestWithPath(challengeURL,
 			signRequest(t, `{"resource":"challenge"}`, &wfe.nonceService)),
 		authz, &requestEvent{})
