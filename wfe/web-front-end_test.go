@@ -173,7 +173,20 @@ func (sa *MockSA) GetRegistrationByKey(jwk jose.JsonWebKey) (core.Registration, 
 func (sa *MockSA) GetAuthorization(id string) (core.Authorization, error) {
 	if id == "valid" {
 		exp := time.Now().AddDate(100, 0, 0)
-		return core.Authorization{Status: core.StatusValid, RegistrationID: 1, Expires: &exp, Identifier: core.AcmeIdentifier{Type: "dns", Value: "not-an-example.com"}}, nil
+		return core.Authorization{
+			ID: "asdf",
+			Status: core.StatusValid,
+			RegistrationID: 1,
+			Expires: &exp,
+			Identifier: core.AcmeIdentifier{Type: "dns", Value: "not-an-example.com"},
+			Challenges: []core.Challenge{
+				core.Challenge{
+					ID: 23,
+					Type: "dns",
+					URI: (*core.AcmeURL)(mustParseURL("/acme/challenge/valid/23")),
+				},
+			},
+		}, nil
 	}
 	return core.Authorization{}, nil
 }
@@ -470,10 +483,11 @@ func TestStandardHeaders(t *testing.T) {
 		{wfe.NewReg, []string{"POST"}},
 		{wfe.RegBase, []string{"POST"}},
 		{wfe.NewAuthz, []string{"POST"}},
-		{wfe.AuthzBase, []string{"GET", "POST"}},
+		{wfe.AuthzBase, []string{"GET"}},
 		{wfe.NewCert, []string{"POST"}},
 		{wfe.CertBase, []string{"GET"}},
 		{wfe.SubscriberAgreementURL, []string{"GET"}},
+		{ChallengePath, []string{"GET", "POST"}},
 	}
 
 	for _, c := range cases {
@@ -700,7 +714,7 @@ func TestChallenge(t *testing.T) {
 	`), &key)
 	test.AssertNotError(t, err, "Could not unmarshal testing key")
 
-	challengeURL := "/acme/authz/asdf?challenge=foo"
+	/*
 	challengeAcme := (*core.AcmeURL)(mustParseURL(challengeURL))
 	authz := core.Authorization{
 		ID: "asdf",
@@ -710,27 +724,29 @@ func TestChallenge(t *testing.T) {
 		},
 		Challenges: []core.Challenge{
 			core.Challenge{
+				ID: 23,
 				Type: "dns",
 				URI:  challengeAcme,
 			},
 		},
 		RegistrationID: 1,
-	}
+	}*/
 
+	challengeURL := "/acme/challenge/valid/23"
 	wfe.Challenge(responseWriter,
 		makePostRequestWithPath(challengeURL,
-			signRequest(t, `{"resource":"challenge"}`, &wfe.nonceService)),
-		authz, &requestEvent{})
+			signRequest(t, `{"resource":"challenge"}`, &wfe.nonceService)))
 
+	test.AssertEquals(t, responseWriter.Code, 202)
 	test.AssertEquals(
 		t, responseWriter.Header().Get("Location"),
-		"/acme/authz/asdf?challenge=foo")
+		challengeURL)
 	test.AssertEquals(
 		t, responseWriter.Header().Get("Link"),
 		`</acme/authz/asdf>;rel="up"`)
 	test.AssertEquals(
 		t, responseWriter.Body.String(),
-		`{"type":"dns","uri":"/acme/authz/asdf?challenge=foo"}`)
+		`{"id":23,"type":"dns","uri":"/acme/challenge/valid/23"}`)
 }
 
 func TestNewRegistration(t *testing.T) {

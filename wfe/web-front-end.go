@@ -769,10 +769,13 @@ func (wfe *WebFrontEndImpl) Challenge(
 		wfe.sendError(response, "No such registration", request.URL.Path, http.StatusNotFound)
 	}
 
-	var authorizationID string
-	var challengeID int64
-	scanFormat := ChallengePath + "%s/%d"
-	_, err := fmt.Sscanf(request.URL.Path, scanFormat, &authorizationID, &challengeID)
+	slug := strings.Split(request.URL.Path[len(ChallengePath):], "/")
+	if len(slug) != 2 {
+		notFound()
+		return
+	}
+	authorizationID := slug[0]
+	challengeID, err := strconv.ParseInt(slug[1], 10, 64)
 	if err != nil {
 		notFound()
 		return
