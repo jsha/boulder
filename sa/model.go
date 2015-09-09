@@ -143,11 +143,6 @@ func modelToChallenge(cm *challModel) (core.Challenge, error) {
 		Token:     cm.Token,
 		TLS:       cm.TLS,
 	}
-	uri, err := core.ParseAcmeURL(fmt.Sprintf("%s%s/%d", ChallengePath, cm.AuthorizationID, cm.ID))
-	if err != nil {
-		return core.Challenge{}, err
-	}
-	c.URI = uri
 	if len(cm.Validation) > 0 {
 		val, err := jose.ParseSigned(string(cm.Validation))
 		if err != nil {

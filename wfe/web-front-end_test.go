@@ -174,16 +174,16 @@ func (sa *MockSA) GetAuthorization(id string) (core.Authorization, error) {
 	if id == "valid" {
 		exp := time.Now().AddDate(100, 0, 0)
 		return core.Authorization{
-			ID: "asdf",
-			Status: core.StatusValid,
+			ID:             "valid",
+			Status:         core.StatusValid,
 			RegistrationID: 1,
-			Expires: &exp,
-			Identifier: core.AcmeIdentifier{Type: "dns", Value: "not-an-example.com"},
+			Expires:        &exp,
+			Identifier:     core.AcmeIdentifier{Type: "dns", Value: "not-an-example.com"},
 			Challenges: []core.Challenge{
 				core.Challenge{
-					ID: 23,
+					ID:   23,
 					Type: "dns",
-					URI: (*core.AcmeURL)(mustParseURL("/acme/challenge/valid/23")),
+					URI:  "http://localhost:4300/acme/challenge/valid/23",
 				},
 			},
 		}, nil
@@ -369,6 +369,7 @@ func setupWFE(t *testing.T) WebFrontEndImpl {
 	wfe.RegBase = wfe.BaseURL + RegPath
 	wfe.NewAuthz = wfe.BaseURL + NewAuthzPath
 	wfe.AuthzBase = wfe.BaseURL + AuthzPath
+	wfe.ChallengeBase = wfe.BaseURL + ChallengePath
 	wfe.NewCert = wfe.BaseURL + NewCertPath
 	wfe.CertBase = wfe.BaseURL + CertPath
 	wfe.SubscriberAgreementURL = agreementURL
@@ -484,10 +485,10 @@ func TestStandardHeaders(t *testing.T) {
 		{wfe.RegBase, []string{"POST"}},
 		{wfe.NewAuthz, []string{"POST"}},
 		{wfe.AuthzBase, []string{"GET"}},
+		{wfe.ChallengeBase, []string{"GET", "POST"}},
 		{wfe.NewCert, []string{"POST"}},
 		{wfe.CertBase, []string{"GET"}},
 		{wfe.SubscriberAgreementURL, []string{"GET"}},
-		{ChallengePath, []string{"GET", "POST"}},
 	}
 
 	for _, c := range cases {
@@ -714,24 +715,6 @@ func TestChallenge(t *testing.T) {
 	`), &key)
 	test.AssertNotError(t, err, "Could not unmarshal testing key")
 
-	/*
-	challengeAcme := (*core.AcmeURL)(mustParseURL(challengeURL))
-	authz := core.Authorization{
-		ID: "asdf",
-		Identifier: core.AcmeIdentifier{
-			Type:  "dns",
-			Value: "letsencrypt.org",
-		},
-		Challenges: []core.Challenge{
-			core.Challenge{
-				ID: 23,
-				Type: "dns",
-				URI:  challengeAcme,
-			},
-		},
-		RegistrationID: 1,
-	}*/
-
 	challengeURL := "/acme/challenge/valid/23"
 	wfe.Challenge(responseWriter,
 		makePostRequestWithPath(challengeURL,
@@ -743,10 +726,10 @@ func TestChallenge(t *testing.T) {
 		challengeURL)
 	test.AssertEquals(
 		t, responseWriter.Header().Get("Link"),
-		`</acme/authz/asdf>;rel="up"`)
+		`</acme/authz/valid>;rel="up"`)
 	test.AssertEquals(
 		t, responseWriter.Body.String(),
-		`{"id":23,"type":"dns","uri":"/acme/challenge/valid/23"}`)
+		`{"type":"dns","uri":"/acme/challenge/valid/23"}`)
 }
 
 func TestNewRegistration(t *testing.T) {

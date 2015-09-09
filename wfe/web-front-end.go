@@ -48,13 +48,14 @@ type WebFrontEndImpl struct {
 	log   *blog.AuditLogger
 
 	// URL configuration parameters
-	BaseURL   string
-	NewReg    string
-	RegBase   string
-	NewAuthz  string
-	AuthzBase string
-	NewCert   string
-	CertBase  string
+	BaseURL       string
+	NewReg        string
+	RegBase       string
+	NewAuthz      string
+	AuthzBase     string
+	ChallengeBase string
+	NewCert       string
+	CertBase      string
 
 	// JSON encoded endpoint directory
 	DirectoryJSON []byte
@@ -196,6 +197,7 @@ func (wfe *WebFrontEndImpl) Handler() (http.Handler, error) {
 	wfe.RegBase = wfe.BaseURL + RegPath
 	wfe.NewAuthz = wfe.BaseURL + NewAuthzPath
 	wfe.AuthzBase = wfe.BaseURL + AuthzPath
+	wfe.ChallengeBase = wfe.BaseURL + ChallengePath
 	wfe.NewCert = wfe.BaseURL + NewCertPath
 	wfe.CertBase = wfe.BaseURL + CertPath
 
@@ -549,6 +551,10 @@ func (wfe *WebFrontEndImpl) NewAuthorization(response http.ResponseWriter, reque
 	}
 	logEvent.Extra["AuthzID"] = authz.ID
 
+	for i, _ := range authz.Challenges {
+		wfe.prepChallengeForDisplay(authz, &authz.Challenges[i])
+	}
+
 	// Make a URL for this authz, then blow away the ID and RegID before serializing
 	authzURL := wfe.AuthzBase + string(authz.ID)
 	authz.ID = ""
@@ -811,12 +817,24 @@ func (wfe *WebFrontEndImpl) Challenge(
 	}
 }
 
+// prepChallengeForDisplay takes a core.Challenge and prepares it for display to
+// the user by filling in its URI field.
+func (wfe *WebFrontEndImpl) prepChallengeForDisplay(authz core.Authorization, challenge *core.Challenge) {
+	challenge.URI = fmt.Sprintf("%s%s/%d", wfe.ChallengeBase, authz.ID, challenge.ID)
+	challenge.AccountKey = nil
+	// 0 is considered "empty" for the purpose of the JSON omitempty tag.
+	challenge.ID = 0
+}
+
 func (wfe *WebFrontEndImpl) getChallenge(
 	response http.ResponseWriter,
 	request *http.Request,
 	authz core.Authorization,
 	challenge core.Challenge,
 	logEvent *requestEvent) {
+
+	wfe.prepChallengeForDisplay(authz, &challenge)
+
 	jsonReply, err := json.Marshal(challenge)
 	if err != nil {
 		logEvent.Error = err.Error()
@@ -827,7 +845,7 @@ func (wfe *WebFrontEndImpl) getChallenge(
 	}
 
 	authzURL := wfe.AuthzBase + string(authz.ID)
-	response.Header().Add("Location", challenge.URI.String())
+	response.Header().Add("Location", challenge.URI)
 	response.Header().Set("Content-Type", "application/json")
 	response.Header().Add("Link", link(authzURL, "up"))
 	response.WriteHeader(http.StatusAccepted)
@@ -894,6 +912,7 @@ func (wfe *WebFrontEndImpl) postChallenge(
 
 	// assumption: UpdateAuthorization does not modify order of challenges
 	challenge := updatedAuthorization.Challenges[challengeIndex]
+	wfe.prepChallengeForDisplay(authz, &challenge)
 	jsonReply, err := json.Marshal(challenge)
 	if err != nil {
 		logEvent.Error = err.Error()
@@ -903,7 +922,7 @@ func (wfe *WebFrontEndImpl) postChallenge(
 	}
 
 	authzURL := wfe.AuthzBase + string(authz.ID)
-	response.Header().Add("Location", challenge.URI.String())
+	response.Header().Add("Location", challenge.URI)
 	response.Header().Set("Content-Type", "application/json")
 	response.Header().Add("Link", link(authzURL, "up"))
 	response.WriteHeader(http.StatusAccepted)
@@ -1021,6 +1040,8 @@ func (wfe *WebFrontEndImpl) Authorization(response http.ResponseWriter, request 
 	if len(request.URL.RawQuery) != 0 {
 		wfe.sendError(response, "Unable to find authorization", err, http.StatusNotFound)
 		return
+	} else {
+		wfe.GetAuthorization(response, request, authz, &logEvent)
 	}
 }
 

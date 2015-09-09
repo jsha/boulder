@@ -182,13 +182,6 @@ func (ra *RegistrationAuthorityImpl) NewAuthorization(request core.Authorization
 		}
 	}
 
-	// Store the authorization object, then return it
-	err = ra.SA.UpdatePendingAuthorization(authz)
-	if err != nil {
-		// InternalServerError because we created the authorization just above,
-		// and adding Sane challenges should not break it.
-		err = core.InternalServerError(err.Error())
-	}
 	return authz, err
 }
 

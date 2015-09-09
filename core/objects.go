@@ -241,7 +241,7 @@ type ValidationRecord struct {
 // challenge, we just throw all the elements into one bucket,
 // together with the common metadata elements.
 type Challenge struct {
-	ID int64 `json:"id"`
+	ID int64 `json:"id,omitempty"`
 
 	// The type of challenge
 	Type string `json:"type"`
@@ -257,7 +257,7 @@ type Challenge struct {
 	Validated *time.Time `json:"validated,omitempty"`
 
 	// A URI to which a response can be POSTed
-	URI *AcmeURL `json:"uri"`
+	URI string `json:"uri"`
 
 	// Used by simpleHttp, dvsni, and dns challenges
 	Token string `json:"token,omitempty"`
