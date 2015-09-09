@@ -759,7 +759,9 @@ func (wfe *WebFrontEndImpl) NewCertificate(response http.ResponseWriter, request
 	wfe.Stats.Inc("Certificates", 1, 1.0)
 }
 
-func (wfe *WebFrontEndImpl) Challenge(response http.ResponseWriter, request *http.Request) {
+func (wfe *WebFrontEndImpl) Challenge(
+	response http.ResponseWriter,
+	request *http.Request) {
 	logEvent := wfe.populateRequestEvent(request)
 	defer wfe.logRequestDetails(&logEvent)
 
@@ -806,7 +808,7 @@ func (wfe *WebFrontEndImpl) Challenge(response http.ResponseWriter, request *htt
 		wfe.getChallenge(response, request, authz, challenge, &logEvent)
 
 	case "POST":
-		wfe.postChallenge(response, request, authz, challenge, &logEvent)
+		wfe.postChallenge(response, request, authz, challengeIndex, &logEvent)
 	}
 }
 
@@ -841,7 +843,7 @@ func (wfe *WebFrontEndImpl) postChallenge(
 	response http.ResponseWriter,
 	request *http.Request,
 	authz core.Authorization,
-	currentChallenge core.Challenge,
+	challengeIndex int,
 	logEvent *requestEvent) {
 	body, _, currReg, err := wfe.verifyPOST(request, true, core.ResourceChallenge)
 	if err != nil {
@@ -884,14 +886,16 @@ func (wfe *WebFrontEndImpl) postChallenge(
 	}
 
 	// Ask the RA to update this authorization
-	updatedChallenge, err := wfe.RA.UpdateChallenge(authz, currentChallenge, challengeUpdate)
+	updatedAuthorization, err := wfe.RA.UpdateAuthorization(authz, challengeIndex, challengeUpdate)
 	if err != nil {
 		logEvent.Error = err.Error()
 		wfe.sendError(response, "Unable to update challenge", err, statusCodeFromError(err))
 		return
 	}
 
-	jsonReply, err := json.Marshal(updatedChallenge)
+	// assumption: UpdateAuthorization does not modify order of challenges
+	challenge := updatedAuthorization.Challenges[challengeIndex]
+	jsonReply, err := json.Marshal(challenge)
 	if err != nil {
 		logEvent.Error = err.Error()
 		// StatusInternalServerError because we made the challenges, they should be OK
@@ -899,8 +903,8 @@ func (wfe *WebFrontEndImpl) postChallenge(
 		return
 	}
 
-	authzURL := wfe.AuthzBase + string(updatedChallenge.AuthorizationID)
-	response.Header().Add("Location", updatedChallenge.URI.String())
+	authzURL := wfe.AuthzBase + string(authz.ID)
+	response.Header().Add("Location", challenge.URI.String())
 	response.Header().Set("Content-Type", "application/json")
 	response.Header().Add("Link", link(authzURL, "up"))
 	response.WriteHeader(http.StatusAccepted)
@@ -1014,6 +1018,18 @@ func (wfe *WebFrontEndImpl) Authorization(response http.ResponseWriter, request 
 	logEvent.Extra["AuthorizationStatus"] = authz.Status
 	logEvent.Extra["AuthorizationExpires"] = authz.Expires
 
+	// If there is a fragment, then this is actually a request to an old-style challenge URI
+	if len(request.URL.RawQuery) != 0 {
+		wfe.sendError(response, "Unable to find authorization", err, http.StatusNotFound)
+		return
+	}
+}
+
+func (wfe *WebFrontEndImpl) GetAuthorization(
+	response http.ResponseWriter,
+	request *http.Request,
+	authz core.Authorization,
+	logEvent *requestEvent) {
 	// Blank out ID and regID
 	authz.ID = ""
 	authz.RegistrationID = 0

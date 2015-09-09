@@ -68,7 +68,7 @@ type RegistrationAuthority interface {
 	UpdateRegistration(Registration, Registration) (Registration, error)
 
 	// [WebFrontEnd]
-	UpdateChallenge(Authorization, Challenge, Challenge) (Challenge, error)
+	UpdateAuthorization(Authorization, int, Challenge) (Authorization, error)
 
 	// [WebFrontEnd]
 	RevokeCertificateWithReg(x509.Certificate, RevocationCode, int64) error
@@ -106,7 +106,6 @@ type StorageGetter interface {
 	GetRegistration(int64) (Registration, error)
 	GetRegistrationByKey(jose.JsonWebKey) (Registration, error)
 	GetAuthorization(string) (Authorization, error)
-	GetChallenge(int64) (Challenge, error)
 	GetLatestValidAuthorization(int64, AcmeIdentifier) (Authorization, error)
 	GetCertificate(string) (Certificate, error)
 	GetCertificateByShortSerial(string) (Certificate, error)
@@ -121,7 +120,6 @@ type StorageAdder interface {
 
 	NewPendingAuthorization(Authorization) (Authorization, error)
 	UpdatePendingAuthorization(Authorization) error
-	UpdateChallenge(Challenge) error
 	FinalizeAuthorization(Authorization) error
 	MarkCertificateRevoked(serial string, ocspResponse []byte, reasonCode RevocationCode) error
 	UpdateOCSP(serial string, ocspResponse []byte) error

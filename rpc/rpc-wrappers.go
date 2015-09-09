@@ -61,7 +61,6 @@ const (
 	MethodFinalizeAuthorization             = "FinalizeAuthorization"             // SA
 	MethodAddCertificate                    = "AddCertificate"                    // SA
 	MethodAlreadyDeniedCSR                  = "AlreadyDeniedCSR"                  // SA
-	MethodUpdateChallenge                   = "UpdateChallenge"                   // SA
 )
 
 // Request structs
@@ -82,10 +81,10 @@ type authorizationRequest struct {
 	RegID int64
 }
 
-type updateChallengeRequest struct {
-	Authz   core.Authorization
-	Current core.Challenge
-	Update  core.Challenge
+type updateAuthorizationRequest struct {
+	Authz    core.Authorization
+	Index    int
+	Response core.Challenge
 }
 
 type latestValidAuthorizationRequest struct {
@@ -250,24 +249,24 @@ func NewRegistrationAuthorityServer(rpc RPCServer, impl core.RegistrationAuthori
 		return
 	})
 
-	rpc.Handle(MethodUpdateChallenge, func(req []byte) (response []byte, err error) {
-		var ucReq updateChallengeRequest
-		err = json.Unmarshal(req, &ucReq)
+	rpc.Handle(MethodUpdateAuthorization, func(req []byte) (response []byte, err error) {
+		var uaReq updateAuthorizationRequest
+		err = json.Unmarshal(req, &uaReq)
 		if err != nil {
 			// AUDIT[ Improper Messages ] 0786b6f2-91ca-4f48-9883-842a19084c64
-			improperMessage(MethodUpdateChallenge, err, req)
+			improperMessage(MethodUpdateAuthorization, err, req)
 			return
 		}
 
-		newChallenge, err := impl.UpdateChallenge(ucReq.Authz, ucReq.Current, ucReq.Update)
+		newAuthz, err := impl.UpdateAuthorization(uaReq.Authz, uaReq.Index, uaReq.Response)
 		if err != nil {
 			return
 		}
 
-		response, err = json.Marshal(newChallenge)
+		response, err = json.Marshal(newAuthz)
 		if err != nil {
 			// AUDIT[ Error Conditions ] 9cc4d537-8534-4970-8665-4b382abe82f3
-			errorCondition(MethodUpdateChallenge, err, req)
+			errorCondition(MethodUpdateAuthorization, err, req)
 			return
 		}
 		return
@@ -410,23 +409,23 @@ func (rac RegistrationAuthorityClient) UpdateRegistration(base core.Registration
 }
 
 // UpdateAuthorization sends an Update Authorization request
-func (rac RegistrationAuthorityClient) UpdateAuthorization(authz core.Authorization, current core.Challenge, update core.Challenge) (updatedChallenge core.Challenge, err error) {
-	var ucReq updateChallengeRequest
-	ucReq.Authz = authz
-	ucReq.Current = current
-	ucReq.Update = update
+func (rac RegistrationAuthorityClient) UpdateAuthorization(authz core.Authorization, index int, response core.Challenge) (newAuthz core.Authorization, err error) {
+	var uaReq updateAuthorizationRequest
+	uaReq.Authz = authz
+	uaReq.Index = index
+	uaReq.Response = response
 
-	data, err := json.Marshal(ucReq)
+	data, err := json.Marshal(uaReq)
 	if err != nil {
 		return
 	}
 
-	updatedChallengeData, err := rac.rpc.DispatchSync(MethodUpdateChallenge, data)
+	newAuthzData, err := rac.rpc.DispatchSync(MethodUpdateAuthorization, data)
 	if err != nil {
 		return
 	}
 
-	err = json.Unmarshal(updatedChallengeData, &updatedChallenge)
+	err = json.Unmarshal(newAuthzData, &newAuthz)
 	return
 }
 

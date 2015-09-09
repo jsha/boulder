@@ -446,9 +446,10 @@ func (ssa *SQLStorageAuthority) NewPendingAuthorization(authz core.Authorization
 			tx.Rollback()
 			return core.Authorization{}, err
 		}
-		// Magic happens here: Gorp will set chall.ID to the auto-increment primary
-		// key. This is important because we want the challenge objects inside the
-		// Authorization we return to know their IDs, so they can have proper URLs.
+		// Magic happens here: Gorp will modify challModel, setting challModel.ID
+		// to the auto-increment primary key. This is important because we want
+		// the challenge objects inside the Authorization we return to know their
+		// IDs, so they can have proper URLs.
 		// See https://godoc.org/github.com/coopernurse/gorp#DbMap.Insert
 		err = tx.Insert(challModel)
 		if err != nil {
@@ -467,45 +468,6 @@ func (ssa *SQLStorageAuthority) NewPendingAuthorization(authz core.Authorization
 	output = pendingAuthz.Authorization
 	output.Challenges = authz.Challenges
 	return
-}
-
-func (ssa *SQLStorageAuthority) GetChallenge(challengeID int64) (core.Challenge, error) {
-	result, err := ssa.dbMap.Get(challModel{}, challengeID)
-	if err != nil {
-		return core.Challenge{}, err
-	}
-	if result == nil {
-		return core.Challenge{}, fmt.Errorf("Requested challenge not found %d", challengeID)
-	}
-	model, ok := result.(*challModel)
-	if !ok {
-		return core.Challenge{}, errors.New("Failed to convert challenge result to challenge model")
-	}
-	return modelToChallenge(model)
-}
-
-func (ssa *SQLStorageAuthority) UpdateChallenge(challenge core.Challenge) (err error) {
-	if challenge.ID == 0 {
-		err = errors.New("Cannot update challenge with id 0")
-	}
-	// First read the challenge to get the existing authz relationship.
-	var currentChallengeModel challModel
-	err = ssa.dbMap.SelectOne(
-		&currentChallengeModel,
-		"SELECT * FROM challenges WHERE ID = :id",
-		map[string]interface{}{"id": challenge.ID})
-	if err != nil {
-		return err
-	}
-	model, err := challengeToModel(&challenge, currentChallengeModel.AuthorizationID)
-	if err != nil {
-		return err
-	}
-	_, err = ssa.dbMap.Update(model)
-	if err != nil {
-		return err
-	}
-	return nil
 }
 
 // UpdatePendingAuthorization updates a Pending Authorization
