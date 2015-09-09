@@ -1,5 +1,12 @@
-These `.sql` files define the table layout, indicies, relationships, and users default to Boulder. Implementors should use these as starting points for their own configuration.
+The `sql` files here define the database user relationships between
+the various databases and services. Implementors should use these as
+starting points for their own configuration. The actual schemas are
+managed by [goose](https://bitbucket.org/liamstask/goose) and can be
+found in `./ca/_db` and `./sa/_db`.
 
-## Notes
+The currently supported database is MariaDB 10.
 
-Currently, if you use MySQL / MariaDB with Boulder, you must manually append `?parseTime=true"` onto the end of the `dbConnect` configuration fields for each entry. This is related to [Issue #242](https://github.com/letsencrypt/boulder/issues/242).
+The databases that boulder requires to operate in development and
+testing can be created using test/create\_db.sh. It uses the root
+MariaDB user, so if you have disabled that account you may have to
+adjust the file or recreate the commands.

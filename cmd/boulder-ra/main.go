@@ -9,8 +9,10 @@ import (
 	"time"
 
 	"github.com/letsencrypt/boulder/Godeps/_workspace/src/github.com/cactus/go-statsd-client/statsd"
-	"github.com/letsencrypt/boulder/Godeps/_workspace/src/github.com/streadway/amqp"
+	"github.com/letsencrypt/boulder/Godeps/_workspace/src/github.com/jmhodges/clock"
 	"github.com/letsencrypt/boulder/core"
+	"github.com/letsencrypt/boulder/policy"
+	"github.com/letsencrypt/boulder/sa"
 
 	"github.com/letsencrypt/boulder/cmd"
 	blog "github.com/letsencrypt/boulder/log"
@@ -20,7 +22,7 @@ import (
 )
 
 func main() {
-	app := cmd.NewAppShell("boulder-ra")
+	app := cmd.NewAppShell("boulder-ra", "Handles service orchestration")
 	app.Action = func(c cmd.Config) {
 		stats, err := statsd.NewClient(c.Statsd.Server, c.Statsd.Prefix)
 		cmd.FailOnError(err, "Couldn't connect to statsd")
@@ -36,28 +38,33 @@ func main() {
 
 		go cmd.DebugServer(c.RA.DebugAddr)
 
-		rai := ra.NewRegistrationAuthorityImpl()
+		paDbMap, err := sa.NewDbMap(c.PA.DBConnect)
+		cmd.FailOnError(err, "Couldn't connect to policy database")
+		pa, err := policy.NewPolicyAuthorityImpl(paDbMap, c.PA.EnforcePolicyWhitelist)
+		cmd.FailOnError(err, "Couldn't create PA")
+
+		rai := ra.NewRegistrationAuthorityImpl(clock.Default(), auditlogger)
 		rai.AuthzBase = c.Common.BaseURL + wfe.AuthzPath
 		rai.MaxKeySize = c.Common.MaxKeySize
+		rai.PA = pa
 		raDNSTimeout, err := time.ParseDuration(c.Common.DNSTimeout)
 		cmd.FailOnError(err, "Couldn't parse RA DNS timeout")
-		rai.DNSResolver = core.NewDNSResolverImpl(raDNSTimeout, []string{c.Common.DNSResolver})
+		if !c.Common.DNSAllowLoopbackAddresses {
+			rai.DNSResolver = core.NewDNSResolverImpl(raDNSTimeout, []string{c.Common.DNSResolver})
+		} else {
+			rai.DNSResolver = core.NewTestDNSResolverImpl(raDNSTimeout, []string{c.Common.DNSResolver})
+		}
 
 		go cmd.ProfileCmd("RA", stats)
 
-		for {
-			ch, err := cmd.AmqpChannel(c)
-			cmd.FailOnError(err, "Could not connect to AMQP")
-
-			closeChan := ch.NotifyClose(make(chan *amqp.Error, 1))
-
-			vaRPC, err := rpc.NewAmqpRPCClient("RA->VA", c.AMQP.VA.Server, ch)
+		connectionHandler := func(srv *rpc.AmqpRPCServer) {
+			vaRPC, err := rpc.NewAmqpRPCClient("RA->VA", c.AMQP.VA.Server, srv.Channel)
 			cmd.FailOnError(err, "Unable to create RPC client")
 
-			caRPC, err := rpc.NewAmqpRPCClient("RA->CA", c.AMQP.CA.Server, ch)
+			caRPC, err := rpc.NewAmqpRPCClient("RA->CA", c.AMQP.CA.Server, srv.Channel)
 			cmd.FailOnError(err, "Unable to create RPC client")
 
-			saRPC, err := rpc.NewAmqpRPCClient("RA->SA", c.AMQP.SA.Server, ch)
+			saRPC, err := rpc.NewAmqpRPCClient("RA->SA", c.AMQP.SA.Server, srv.Channel)
 			cmd.FailOnError(err, "Unable to create RPC client")
 
 			vac, err := rpc.NewValidationAuthorityClient(vaRPC)
@@ -72,17 +79,16 @@ func main() {
 			rai.VA = &vac
 			rai.CA = &cac
 			rai.SA = &sac
-
-			ras := rpc.NewAmqpRPCServer(c.AMQP.RA.Server, ch)
-
-			err = rpc.NewRegistrationAuthorityServer(ras, &rai)
-			cmd.FailOnError(err, "Unable to create RA server")
-
-			auditlogger.Info(app.VersionString())
-
-			cmd.RunUntilSignaled(auditlogger, ras, closeChan)
 		}
 
+		ras, err := rpc.NewAmqpRPCServer(c.AMQP.RA.Server, connectionHandler)
+		cmd.FailOnError(err, "Unable to create RA RPC server")
+		rpc.NewRegistrationAuthorityServer(ras, &rai)
+
+		auditlogger.Info(app.VersionString())
+
+		err = ras.Start(c)
+		cmd.FailOnError(err, "Unable to run RA RPC server")
 	}
 
 	app.Run()

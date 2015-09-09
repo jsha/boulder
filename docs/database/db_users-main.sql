@@ -12,12 +12,13 @@
 -- Storage Authority
 CREATE USER `sa`@`%` IDENTIFIED BY 'password';
 GRANT SELECT,INSERT,UPDATE ON authz TO 'sa'@'%';
-GRANT SELECT,INSERT,UPDATE,DELETE ON pending_authz TO 'sa'@'%';
+GRANT SELECT,INSERT,UPDATE,DELETE ON pendingAuthorizations TO 'sa'@'%';
 GRANT SELECT,INSERT ON certificates TO 'sa'@'%';
 GRANT SELECT,INSERT,UPDATE ON certificateStatus TO 'sa'@'%';
 GRANT SELECT,INSERT ON deniedCSRs TO 'sa'@'%';
 GRANT INSERT ON ocspResponses TO 'sa'@'%';
 GRANT SELECT,INSERT,UPDATE ON registrations TO 'sa'@'%';
+GRANT SELECT,INSERT,UPDATE ON challenges TO 'sa'@'%';
 
 -- OCSP Responder
 CREATE USER `ocsp_resp`@`%` IDENTIFIED BY 'password';
@@ -34,3 +35,8 @@ CREATE USER `revoker`@`%` IDENTIFIED BY 'password';
 GRANT SELECT ON registrations TO 'revoker'@'%';
 GRANT SELECT ON certificates TO 'revoker'@'%';
 GRANT SELECT,INSERT ON deniedCSRs TO 'revoker'@'%';
+
+-- External Cert Importer
+CREATE USER `importer`@`%` IDENTIFIED BY 'password';
+GRANT SELECT,INSERT,UPDATE,DELETE ON identifierData TO 'importer'@'%';
+GRANT SELECT,INSERT,UPDATE,DELETE ON externalCerts TO 'importer'@'%';

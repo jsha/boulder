@@ -7,6 +7,7 @@
 
   "amqp": {
     "server": "amqp://guest:guest@localhost:5672",
+    "insecure": true,
     "-uncomment_for_AMQPS-tls": {
       "cacertfile": "/etc/boulder/rabbitmq-cacert.pem",
       "certfile": "/etc/boulder/rabbitmq-cert.pem",
@@ -47,11 +48,8 @@
   "ca": {
     "serialPrefix": 255,
     "profile": "ee",
-    "dbDriver": "sqlite3",
-    "dbConnect": ":memory:",
+    "dbConnect": "mysql+tcp://boulder@localhost:3306/boulder_ca_integration",
     "debugAddr": "localhost:8001",
-    "testMode": true,
-    "_comment": "This should only be present in testMode. In prod use an HSM.",
     "Key": {
       "File": "test/test-ca.key"
     },
@@ -71,10 +69,10 @@
             "backdate": "1h",
             "is_ca": false,
             "issuer_urls": [
-              "http://int-x1.letsencrypt.org/cert"
+              "http://localhost:4000/acme/issuer-cert"
             ],
-            "ocsp_url": "http://int-x1.letsencrypt.org/ocsp",
-            "crl_url": "http://int-x1.letsencrypt.org/crl",
+            "ocsp_url": "http://localhost:4002/ocsp",
+            "crl_url": "http://example.com/crl",
             "policies": [
               {
                 "ID": "2.23.140.1.2.1"
@@ -109,8 +107,8 @@
     }
   },
 
-  "monolith": {
-    "debugAddr": "localhost:8008"
+  "pa": {
+    "dbConnect": "mysql+tcp://boulder@localhost:3306/boulder_policy_test"
   },
 
   "ra": {
@@ -118,37 +116,37 @@
   },
 
   "sa": {
-    "dbDriver": "sqlite3",
-    "dbConnect": ":memory:",
+    "dbConnect": "mysql+tcp://boulder@localhost:3306/boulder_sa_integration",
     "debugAddr": "localhost:8003"
   },
 
   "va": {
     "userAgent": "boulder",
-    "debugAddr": "localhost:8004"
+    "debugAddr": "localhost:8004",
+    "portConfig": {
+      "simpleHTTPPort": 5001,
+      "simpleHTTPSPort": 5001,
+      "dvsniPort": 5001
+    }
   },
 
   "sql": {
-    "SQLDebug": true,
-    "CreateTables": true
+    "SQLDebug": true
   },
 
   "revoker": {
-    "dbDriver": "sqlite3",
-    "dbConnect": ":memory:"
+    "dbConnect": "mysql+tcp://boulder@localhost:3306/boulder_sa_integration"
   },
 
   "ocspResponder": {
-    "dbDriver": "sqlite3",
-    "dbConnect": ":memory:",
+    "dbConnect": "mysql+tcp://boulder@localhost:3306/boulder_sa_integration",
     "path": "/",
-    "listenAddress": "localhost:4001",
+    "listenAddress": "localhost:4002",
     "debugAddr": "localhost:8005"
   },
 
   "ocspUpdater": {
-    "dbDriver": "sqlite3",
-    "dbConnect": ":memory:",
+    "dbConnect": "mysql+tcp://boulder@localhost:3306/boulder_sa_integration",
     "minTimeToExpiry": "72h",
     "debugAddr": "localhost:8006"
   },
@@ -157,20 +155,30 @@
     "debugAddr": "localhost:8007"
   },
 
-  "mail": {
+  "mailer": {
     "server": "mail.example.com",
     "port": "25",
     "username": "cert-master@example.com",
-    "password": "password"
+    "password": "password",
+    "dbConnect": "mysql+tcp://boulder@localhost:3306/boulder_sa_integration",
+    "messageLimit": 0,
+    "nagTimes": ["24h", "72h", "168h", "336h"],
+    "emailTemplate": "test/example-expiration-template",
+    "debugAddr": "localhost:8004"
   },
 
   "common": {
     "baseURL": "http://localhost:4000",
     "issuerCert": "test/test-ca.pem",
     "maxKeySize": 4096,
-    "dnsResolver": "8.8.8.8:53",
-    "dnsTimeout": "10s"
+    "dnsResolver": "127.0.0.1:8053",
+    "dnsTimeout": "10s",
+    "dnsAllowLoopbackAddresses": true
   },
 
-  "subscriberAgreementURL": "http://localhost:4000/terms/v1"
+  "certChecker": {
+    "dbConnect": "mysql+tcp://boulder@localhost:3306/boulder_test"
+  },
+
+  "subscriberAgreementURL": "http://localhost:4001/terms/v1"
 }

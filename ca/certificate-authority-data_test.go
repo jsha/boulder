@@ -8,39 +8,13 @@ package ca
 import (
 	"testing"
 
-	_ "github.com/letsencrypt/boulder/Godeps/_workspace/src/github.com/mattn/go-sqlite3"
+	"github.com/letsencrypt/boulder/sa"
 	"github.com/letsencrypt/boulder/test"
 )
 
-const badDriver = "nothing"
-const badFilename = "/doesnotexist/nofile"
-const sqliteDriver = "sqlite3"
-const sqliteName = ":memory:"
-
-func TestConstruction(t *testing.T) {
-	// Successful case
-	_, err := NewCertificateAuthorityDatabaseImpl(sqliteDriver, sqliteName)
-	test.AssertNotError(t, err, "Could not construct CA DB")
-
-	// Covers "sql.Open" error
-	_, err = NewCertificateAuthorityDatabaseImpl(badDriver, sqliteName)
-	test.AssertError(t, err, "Should have failed construction")
-
-	// Covers "db.Ping" error
-	_, err = NewCertificateAuthorityDatabaseImpl(sqliteDriver, badFilename)
-	test.AssertError(t, err, "Should have failed construction")
-}
-
 func TestGetSetSequenceOutsideTx(t *testing.T) {
-	cadb, err := NewCertificateAuthorityDatabaseImpl(sqliteDriver, sqliteName)
-	test.AssertNotError(t, err, "Could not construct CA DB")
-
-	err = cadb.CreateTablesIfNotExists()
-	test.AssertNotError(t, err, "Could not construct tables")
-
-	_, err = cadb.IncrementAndGetSerial(nil)
-	test.AssertError(t, err, "Not permitted")
-
+	cadb, cleanUp := caDBImpl(t)
+	defer cleanUp()
 	tx, err := cadb.Begin()
 	test.AssertNotError(t, err, "Could not begin")
 	tx.Commit()
@@ -55,12 +29,8 @@ func TestGetSetSequenceOutsideTx(t *testing.T) {
 }
 
 func TestGetSetSequenceNumber(t *testing.T) {
-	cadb, err := NewCertificateAuthorityDatabaseImpl(sqliteDriver, sqliteName)
-	test.AssertNotError(t, err, "Could not construct CA DB")
-
-	err = cadb.CreateTablesIfNotExists()
-	test.AssertNotError(t, err, "Could not construct tables")
-
+	cadb, cleanUp := caDBImpl(t)
+	defer cleanUp()
 	tx, err := cadb.Begin()
 	test.AssertNotError(t, err, "Could not begin")
 
@@ -73,4 +43,19 @@ func TestGetSetSequenceNumber(t *testing.T) {
 
 	err = tx.Commit()
 	test.AssertNotError(t, err, "Could not commit")
+}
+
+func caDBImpl(t *testing.T) (*CertificateAuthorityDatabaseImpl, func()) {
+	dbMap, err := sa.NewDbMap(caDBConnStr)
+	if err != nil {
+		t.Fatalf("Could not construct dbMap: %s", err)
+	}
+
+	cadb, err := NewCertificateAuthorityDatabaseImpl(dbMap)
+	if err != nil {
+		t.Fatalf("Could not construct CA DB: %s", err)
+	}
+
+	cleanUp := test.ResetTestDatabase(t, dbMap.Db)
+	return cadb, cleanUp
 }

@@ -7,16 +7,17 @@ package main
 
 import (
 	"github.com/letsencrypt/boulder/Godeps/_workspace/src/github.com/cactus/go-statsd-client/statsd"
-	"github.com/letsencrypt/boulder/Godeps/_workspace/src/github.com/streadway/amqp"
-
+	"github.com/letsencrypt/boulder/Godeps/_workspace/src/github.com/jmhodges/clock"
 	"github.com/letsencrypt/boulder/ca"
 	"github.com/letsencrypt/boulder/cmd"
 	blog "github.com/letsencrypt/boulder/log"
+	"github.com/letsencrypt/boulder/policy"
 	"github.com/letsencrypt/boulder/rpc"
+	"github.com/letsencrypt/boulder/sa"
 )
 
 func main() {
-	app := cmd.NewAppShell("boulder-ca")
+	app := cmd.NewAppShell("boulder-ca", "Handles issuance operations")
 	app.Action = func(c cmd.Config) {
 		stats, err := statsd.NewClient(c.Statsd.Server, c.Statsd.Prefix)
 		cmd.FailOnError(err, "Couldn't connect to statsd")
@@ -32,44 +33,42 @@ func main() {
 
 		go cmd.DebugServer(c.CA.DebugAddr)
 
-		cadb, err := ca.NewCertificateAuthorityDatabaseImpl(c.CA.DBDriver, c.CA.DBConnect)
+		dbMap, err := sa.NewDbMap(c.CA.DBConnect)
+		cmd.FailOnError(err, "Couldn't connect to CA database")
 
+		cadb, err := ca.NewCertificateAuthorityDatabaseImpl(dbMap)
 		cmd.FailOnError(err, "Failed to create CA database")
 
-		if c.SQL.CreateTables {
-			err = cadb.CreateTablesIfNotExists()
-			cmd.FailOnError(err, "Failed to create CA tables")
-		}
+		paDbMap, err := sa.NewDbMap(c.PA.DBConnect)
+		cmd.FailOnError(err, "Couldn't connect to policy database")
+		pa, err := policy.NewPolicyAuthorityImpl(paDbMap, c.PA.EnforcePolicyWhitelist)
+		cmd.FailOnError(err, "Couldn't create PA")
 
-		cai, err := ca.NewCertificateAuthorityImpl(cadb, c.CA, c.Common.IssuerCert)
+		cai, err := ca.NewCertificateAuthorityImpl(cadb, c.CA, clock.Default(), c.Common.IssuerCert)
 		cmd.FailOnError(err, "Failed to create CA impl")
 		cai.MaxKeySize = c.Common.MaxKeySize
+		cai.PA = pa
 
 		go cmd.ProfileCmd("CA", stats)
 
-		for {
-			ch, err := cmd.AmqpChannel(c)
-			cmd.FailOnError(err, "Could not connect to AMQP")
-
-			closeChan := ch.NotifyClose(make(chan *amqp.Error, 1))
-
-			saRPC, err := rpc.NewAmqpRPCClient("CA->SA", c.AMQP.SA.Server, ch)
+		connectionHandler := func(srv *rpc.AmqpRPCServer) {
+			saRPC, err := rpc.NewAmqpRPCClient("CA->SA", c.AMQP.SA.Server, srv.Channel)
 			cmd.FailOnError(err, "Unable to create RPC client")
 
 			sac, err := rpc.NewStorageAuthorityClient(saRPC)
 			cmd.FailOnError(err, "Failed to create SA client")
 
 			cai.SA = &sac
-
-			cas := rpc.NewAmqpRPCServer(c.AMQP.CA.Server, ch)
-
-			err = rpc.NewCertificateAuthorityServer(cas, cai)
-			cmd.FailOnError(err, "Unable to create CA server")
-
-			auditlogger.Info(app.VersionString())
-
-			cmd.RunUntilSignaled(auditlogger, cas, closeChan)
 		}
+
+		cas, err := rpc.NewAmqpRPCServer(c.AMQP.CA.Server, connectionHandler)
+		cmd.FailOnError(err, "Unable to create CA RPC server")
+		rpc.NewCertificateAuthorityServer(cas, cai)
+
+		auditlogger.Info(app.VersionString())
+
+		err = cas.Start(c)
+		cmd.FailOnError(err, "Unable to run CA RPC server")
 	}
 
 	app.Run()

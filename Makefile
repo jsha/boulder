@@ -9,16 +9,7 @@ VERSION ?= 1.0.0
 EPOCH ?= 1
 MAINTAINER ?= "Community"
 
-OBJECTS = activity-monitor \
-	admin-revoker \
-	boulder \
-	boulder-ca \
-	boulder-ra \
-	boulder-sa \
-	boulder-va \
-	boulder-wfe \
-	ocsp-updater \
-	ocsp-responder
+OBJECTS = $(shell find ./cmd -maxdepth 1 -mindepth 1 -type d -exec basename '{}' \;)
 
 # Build environment variables (referencing core/util.go)
 COMMIT_ID = $(shell git rev-parse --short HEAD)
@@ -39,16 +30,14 @@ build: $(OBJECTS)
 
 pre:
 	@mkdir -p $(OBJDIR)
-	@echo [go] lib/github.com/mattn/go-sqlite3
-	@go install ./Godeps/_workspace/src/github.com/mattn/go-sqlite3
 
 # Compile each of the binaries
 $(OBJECTS): pre
 	@echo [go] bin/$@
 	@go build -o ./bin/$@ -ldflags \
-		"-X $(BUILD_ID_VAR) '$(BUILD_ID)' -X $(BUILD_TIME_VAR) '$(BUILD_TIME)' \
-		 -X $(BUILD_HOST_VAR) '$(BUILD_HOST)'" \
-		cmd/$@/main.go
+		"-X \"$(BUILD_ID_VAR)=$(BUILD_ID)\" -X \"$(BUILD_TIME_VAR)=$(BUILD_TIME)\" \
+		-X \"$(BUILD_HOST_VAR)=$(BUILD_HOST)\"" \
+		./cmd/$@/
 
 clean:
 	rm -f $(OBJDIR)/*
@@ -82,4 +71,5 @@ rpm:
 		--package $(ARCHIVEDIR)/boulder-$(VERSION)-$(COMMIT_ID).x86_64.rpm \
 		--description "Boulder is an ACME-compatible X.509 Certificate Authority" \
 		--depends "libtool-ltdl" --maintainer "$(MAINTAINER)" \
-		test/boulder-config.json $(foreach var,$(OBJECTS), $(OBJDIR)/$(var))
+		test/boulder-config.json sa/_db ca/_db $(foreach var,$(OBJECTS), $(OBJDIR)/$(var))
+

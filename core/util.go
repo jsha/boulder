@@ -19,13 +19,14 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	jose "github.com/letsencrypt/boulder/Godeps/_workspace/src/github.com/letsencrypt/go-jose"
-	blog "github.com/letsencrypt/boulder/log"
 	"hash"
 	"io"
 	"math/big"
 	"net/url"
 	"strings"
+
+	jose "github.com/letsencrypt/boulder/Godeps/_workspace/src/github.com/letsencrypt/go-jose"
+	blog "github.com/letsencrypt/boulder/log"
 )
 
 // Package Variables Variables
@@ -62,6 +63,9 @@ type UnauthorizedError string
 // NotFoundError indicates the destination was unknown. Whoa oh oh ohhh.
 type NotFoundError string
 
+// LengthRequiredError indicates a POST was sent with no Content-Length.
+type LengthRequiredError string
+
 // SyntaxError indicates the user improperly formatted their data.
 type SyntaxError string
 
@@ -79,6 +83,7 @@ func (e NotSupportedError) Error() string        { return string(e) }
 func (e MalformedRequestError) Error() string    { return string(e) }
 func (e UnauthorizedError) Error() string        { return string(e) }
 func (e NotFoundError) Error() string            { return string(e) }
+func (e LengthRequiredError) Error() string      { return string(e) }
 func (e SyntaxError) Error() string              { return string(e) }
 func (e SignatureValidationError) Error() string { return string(e) }
 func (e CertificateIssuanceError) Error() string { return string(e) }
@@ -143,6 +148,9 @@ func Fingerprint256(data []byte) string {
 func KeyDigest(key crypto.PublicKey) (string, error) {
 	switch t := key.(type) {
 	case *jose.JsonWebKey:
+		if t == nil {
+			return "", fmt.Errorf("Cannot compute digest of nil key")
+		}
 		return KeyDigest(t.Key)
 	case jose.JsonWebKey:
 		return KeyDigest(t.Key)
@@ -173,13 +181,21 @@ func KeyDigestEquals(j, k crypto.PublicKey) bool {
 // AcmeURL is a URL that automatically marshal/unmarshal to JSON strings
 type AcmeURL url.URL
 
-func (u AcmeURL) String() string {
-	url := url.URL(u)
-	return url.String()
+func ParseAcmeURL(s string) (*AcmeURL, error) {
+	u, err := url.Parse(s)
+	if err != nil {
+		return nil, err
+	}
+	return (*AcmeURL)(u), nil
+}
+
+func (u *AcmeURL) String() string {
+	uu := (*url.URL)(u)
+	return uu.String()
 }
 
 // PathSegments splits an AcmeURL into segments on the '/' characters
-func (u AcmeURL) PathSegments() (segments []string) {
+func (u *AcmeURL) PathSegments() (segments []string) {
 	segments = strings.Split(u.Path, "/")
 	if len(segments) > 0 && len(segments[0]) == 0 {
 		segments = segments[1:]
@@ -188,9 +204,8 @@ func (u AcmeURL) PathSegments() (segments []string) {
 }
 
 // MarshalJSON encodes an AcmeURL for transfer
-func (u AcmeURL) MarshalJSON() ([]byte, error) {
-	uu := url.URL(u)
-	return json.Marshal(uu.String())
+func (u *AcmeURL) MarshalJSON() ([]byte, error) {
+	return json.Marshal(u.String())
 }
 
 // UnmarshalJSON decodes an AcmeURL from transfer

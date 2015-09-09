@@ -14,7 +14,6 @@ import (
 	"html/template"
 	"io/ioutil"
 	"net/http"
-	"net/url"
 	"regexp"
 	"strconv"
 	"strings"
@@ -88,8 +87,10 @@ func statusCodeFromError(err interface{}) int {
 		return http.StatusForbidden
 	case core.NotFoundError:
 		return http.StatusNotFound
+	case core.LengthRequiredError:
+		return http.StatusLengthRequired
 	case core.SignatureValidationError:
-		return http.StatusPreconditionFailed
+		return http.StatusBadRequest
 	case core.InternalServerError:
 		return http.StatusInternalServerError
 	default:
@@ -98,16 +99,16 @@ func statusCodeFromError(err interface{}) int {
 }
 
 type requestEvent struct {
-	ID           string         `json:",omitempty"`
-	RealIP       string         `json:",omitempty"`
-	ForwardedFor string         `json:",omitempty"`
-	Endpoint     string         `json:",omitempty"`
-	Method       string         `json:",omitempty"`
-	RequestTime  time.Time      `json:",omitempty"`
-	ResponseTime time.Time      `json:",omitempty"`
-	Error        string         `json:",omitempty"`
-	Requester    int64          `json:",omitempty"`
-	Contacts     []core.AcmeURL `json:",omitempty"`
+	ID           string          `json:",omitempty"`
+	RealIP       string          `json:",omitempty"`
+	ForwardedFor string          `json:",omitempty"`
+	Endpoint     string          `json:",omitempty"`
+	Method       string          `json:",omitempty"`
+	RequestTime  time.Time       `json:",omitempty"`
+	ResponseTime time.Time       `json:",omitempty"`
+	Error        string          `json:",omitempty"`
+	Requester    int64           `json:",omitempty"`
+	Contacts     []*core.AcmeURL `json:",omitempty"`
 
 	Extra map[string]interface{} `json:",omitempty"`
 }
@@ -282,6 +283,12 @@ func (wfe *WebFrontEndImpl) verifyPOST(request *http.Request, regCheck bool, res
 	var err error
 	var reg core.Registration
 
+	if _, ok := request.Header["Content-Length"]; !ok {
+		err = core.LengthRequiredError("Content-Length header is required for POST.")
+		wfe.log.Debug(err.Error())
+		return nil, nil, reg, err
+	}
+
 	// Read body
 	if request.Body == nil {
 		err = core.MalformedRequestError("No body on POST")
@@ -392,6 +399,8 @@ func (wfe *WebFrontEndImpl) sendError(response http.ResponseWriter, msg string, 
 	case http.StatusNotFound:
 		fallthrough
 	case http.StatusBadRequest:
+		fallthrough
+	case http.StatusLengthRequired:
 		problem.Type = core.MalformedProblem
 	default: // Either http.StatusInternalServerError or an unexpected code
 		problem.Type = core.ServerInternalProblem
@@ -433,7 +442,7 @@ func (wfe *WebFrontEndImpl) NewRegistration(response http.ResponseWriter, reques
 	body, key, _, err := wfe.verifyPOST(request, false, core.ResourceNewReg)
 	if err != nil {
 		logEvent.Error = err.Error()
-		wfe.sendError(response, malformedJWS, err, http.StatusBadRequest)
+		wfe.sendError(response, malformedJWS, err, statusCodeFromError(err))
 		return
 	}
 
@@ -502,7 +511,7 @@ func (wfe *WebFrontEndImpl) NewAuthorization(response http.ResponseWriter, reque
 	if err != nil {
 		logEvent.Error = err.Error()
 		respMsg := malformedJWS
-		respCode := http.StatusBadRequest
+		respCode := statusCodeFromError(err)
 		if err == sql.ErrNoRows {
 			respMsg = unknownKey
 			respCode = http.StatusForbidden
@@ -572,7 +581,7 @@ func (wfe *WebFrontEndImpl) RevokeCertificate(response http.ResponseWriter, requ
 	body, requestKey, registration, err := wfe.verifyPOST(request, false, core.ResourceRevokeCert)
 	if err != nil {
 		logEvent.Error = err.Error()
-		wfe.sendError(response, malformedJWS, err, http.StatusBadRequest)
+		wfe.sendError(response, malformedJWS, err, statusCodeFromError(err))
 		return
 	}
 	logEvent.Requester = registration.ID
@@ -641,7 +650,8 @@ func (wfe *WebFrontEndImpl) RevokeCertificate(response http.ResponseWriter, requ
 		return
 	}
 
-	err = wfe.RA.RevokeCertificate(*parsedCertificate)
+	// Use revocation code 0, meaning "unspecified"
+	err = wfe.RA.RevokeCertificateWithReg(*parsedCertificate, 0, registration.ID)
 	if err != nil {
 		logEvent.Error = err.Error()
 		wfe.sendError(response, "Failed to revoke certificate", err, statusCodeFromError(err))
@@ -676,7 +686,7 @@ func (wfe *WebFrontEndImpl) NewCertificate(response http.ResponseWriter, request
 	if err != nil {
 		logEvent.Error = err.Error()
 		respMsg := malformedJWS
-		respCode := http.StatusBadRequest
+		respCode := statusCodeFromError(err)
 		if err == sql.ErrNoRows {
 			respMsg = unknownKey
 			respCode = http.StatusForbidden
@@ -747,12 +757,18 @@ func (wfe *WebFrontEndImpl) NewCertificate(response http.ResponseWriter, request
 	wfe.Stats.Inc("Certificates", 1, 1.0)
 }
 
-func (wfe *WebFrontEndImpl) challenge(authz core.Authorization, response http.ResponseWriter, request *http.Request, logEvent requestEvent) requestEvent {
+func (wfe *WebFrontEndImpl) challenge(
+	response http.ResponseWriter,
+	request *http.Request,
+	authz core.Authorization,
+	logEvent *requestEvent) {
+
 	// Check that the requested challenge exists within the authorization
 	found := false
 	var challengeIndex int
+	var challenge core.Challenge
 	for i, challenge := range authz.Challenges {
-		tempURL := url.URL(challenge.URI)
+		tempURL := challenge.URI
 		if tempURL.Path == request.URL.Path && tempURL.RawQuery == request.URL.RawQuery {
 			found = true
 			challengeIndex = i
@@ -763,106 +779,119 @@ func (wfe *WebFrontEndImpl) challenge(authz core.Authorization, response http.Re
 	if !found {
 		logEvent.Error = "Unable to find challenge"
 		wfe.sendError(response, logEvent.Error, request.URL.RawQuery, http.StatusNotFound)
-		return logEvent
+		return
 	}
 
 	switch request.Method {
 	case "GET":
-		challenge := authz.Challenges[challengeIndex]
-		jsonReply, err := json.Marshal(challenge)
-		if err != nil {
-			logEvent.Error = err.Error()
-			// InternalServerError because this is a failure to decode data passed in
-			// by the caller, which got it from the DB.
-			wfe.sendError(response, "Failed to marshal challenge", err, http.StatusInternalServerError)
-			return logEvent
-		}
-
-		authzURL := wfe.AuthzBase + string(authz.ID)
-		challengeURL := url.URL(challenge.URI)
-		response.Header().Add("Location", challengeURL.String())
-		response.Header().Set("Content-Type", "application/json")
-		response.Header().Add("Link", link(authzURL, "up"))
-		response.WriteHeader(http.StatusAccepted)
-		if _, err := response.Write(jsonReply); err != nil {
-			wfe.log.Warning(fmt.Sprintf("Could not write response: %s", err))
-			logEvent.Error = err.Error()
-			return logEvent
-		}
+		wfe.getChallenge(response, request, authz, challenge, logEvent)
 
 	case "POST":
-		body, _, currReg, err := wfe.verifyPOST(request, true, core.ResourceChallenge)
-		if err != nil {
-			logEvent.Error = err.Error()
-			respMsg := malformedJWS
-			respCode := http.StatusBadRequest
-			if err == sql.ErrNoRows {
-				respMsg = unknownKey
-				respCode = http.StatusForbidden
-			}
-			wfe.sendError(response, respMsg, err, respCode)
-			return logEvent
-		}
-		logEvent.Requester = currReg.ID
-		logEvent.Contacts = currReg.Contact
-		// Any version of the agreement is acceptable here. Version match is enforced in
-		// wfe.Registration when agreeing the first time. Agreement updates happen
-		// by mailing subscribers and don't require a registration update.
-		if currReg.Agreement == "" {
-			logEvent.Error = "Must agree to subscriber agreement before any further actions"
-			wfe.sendError(response, logEvent.Error, nil, http.StatusForbidden)
-			return logEvent
-		}
-
-		// Check that the registration ID matching the key used matches
-		// the registration ID on the authz object
-		if currReg.ID != authz.RegistrationID {
-			logEvent.Error = fmt.Sprintf("User: %v != Authorization: %v", currReg.ID, authz.RegistrationID)
-			wfe.sendError(response, "User registration ID doesn't match registration ID in authorization",
-				logEvent.Error,
-				http.StatusForbidden)
-			return logEvent
-		}
-
-		var challengeResponse core.Challenge
-		if err = json.Unmarshal(body, &challengeResponse); err != nil {
-			logEvent.Error = err.Error()
-			wfe.sendError(response, "Error unmarshaling challenge response", err, http.StatusBadRequest)
-			return logEvent
-		}
-
-		// Ask the RA to update this authorization
-		updatedAuthz, err := wfe.RA.UpdateAuthorization(authz, challengeIndex, challengeResponse)
-		if err != nil {
-			logEvent.Error = err.Error()
-			wfe.sendError(response, "Unable to update authorization", err, statusCodeFromError(err))
-			return logEvent
-		}
-
-		challenge := updatedAuthz.Challenges[challengeIndex]
-		// assumption: UpdateAuthorization does not modify order of challenges
-		jsonReply, err := json.Marshal(challenge)
-		if err != nil {
-			logEvent.Error = err.Error()
-			// StatusInternalServerError because we made the challenges, they should be OK
-			wfe.sendError(response, "Failed to marshal challenge", err, http.StatusInternalServerError)
-			return logEvent
-		}
-
-		authzURL := wfe.AuthzBase + string(authz.ID)
-		challengeURL := url.URL(challenge.URI)
-		response.Header().Add("Location", challengeURL.String())
-		response.Header().Set("Content-Type", "application/json")
-		response.Header().Add("Link", link(authzURL, "up"))
-		response.WriteHeader(http.StatusAccepted)
-		if _, err = response.Write(jsonReply); err != nil {
-			logEvent.Error = err.Error()
-			wfe.log.Warning(fmt.Sprintf("Could not write response: %s", err))
-			return logEvent
-		}
-
+		wfe.postChallenge(response, request, authz, challengeIndex, logEvent)
 	}
-	return logEvent
+}
+
+func (wfe *WebFrontEndImpl) getChallenge(
+	response http.ResponseWriter,
+	request *http.Request,
+	authz core.Authorization,
+	challenge core.Challenge,
+	logEvent *requestEvent) {
+	jsonReply, err := json.Marshal(challenge)
+	if err != nil {
+		logEvent.Error = err.Error()
+		// InternalServerError because this is a failure to decode data passed in
+		// by the caller, which got it from the DB.
+		wfe.sendError(response, "Failed to marshal challenge", err, http.StatusInternalServerError)
+		return
+	}
+
+	authzURL := wfe.AuthzBase + string(authz.ID)
+	response.Header().Add("Location", challenge.URI.String())
+	response.Header().Set("Content-Type", "application/json")
+	response.Header().Add("Link", link(authzURL, "up"))
+	response.WriteHeader(http.StatusAccepted)
+	if _, err := response.Write(jsonReply); err != nil {
+		wfe.log.Warning(fmt.Sprintf("Could not write response: %s", err))
+		logEvent.Error = err.Error()
+		return
+	}
+}
+
+func (wfe *WebFrontEndImpl) postChallenge(
+	response http.ResponseWriter,
+	request *http.Request,
+	authz core.Authorization,
+	challengeIndex int,
+	logEvent *requestEvent) {
+	body, _, currReg, err := wfe.verifyPOST(request, true, core.ResourceChallenge)
+	if err != nil {
+		logEvent.Error = err.Error()
+		respMsg := malformedJWS
+		respCode := http.StatusBadRequest
+		if err == sql.ErrNoRows {
+			respMsg = unknownKey
+			respCode = http.StatusForbidden
+		}
+		wfe.sendError(response, respMsg, err, respCode)
+		return
+	}
+	logEvent.Requester = currReg.ID
+	logEvent.Contacts = currReg.Contact
+	// Any version of the agreement is acceptable here. Version match is enforced in
+	// wfe.Registration when agreeing the first time. Agreement updates happen
+	// by mailing subscribers and don't require a registration update.
+	if currReg.Agreement == "" {
+		logEvent.Error = "Must agree to subscriber agreement before any further actions"
+		wfe.sendError(response, logEvent.Error, nil, http.StatusForbidden)
+		return
+	}
+
+	// Check that the registration ID matching the key used matches
+	// the registration ID on the authz object
+	if currReg.ID != authz.RegistrationID {
+		logEvent.Error = fmt.Sprintf("User: %v != Authorization: %v", currReg.ID, authz.RegistrationID)
+		wfe.sendError(response, "User registration ID doesn't match registration ID in authorization",
+			logEvent.Error,
+			http.StatusForbidden)
+		return
+	}
+
+	var challengeUpdate core.Challenge
+	if err = json.Unmarshal(body, &challengeUpdate); err != nil {
+		logEvent.Error = err.Error()
+		wfe.sendError(response, "Error unmarshaling challenge response", err, http.StatusBadRequest)
+		return
+	}
+
+	// Ask the RA to update this authorization
+	updatedAuthorization, err := wfe.RA.UpdateAuthorization(authz, challengeIndex, challengeUpdate)
+	if err != nil {
+		logEvent.Error = err.Error()
+		wfe.sendError(response, "Unable to update challenge", err, statusCodeFromError(err))
+		return
+	}
+
+	// assumption: UpdateAuthorization does not modify order of challenges
+	challenge := updatedAuthorization.Challenges[challengeIndex]
+	jsonReply, err := json.Marshal(challenge)
+	if err != nil {
+		logEvent.Error = err.Error()
+		// StatusInternalServerError because we made the challenges, they should be OK
+		wfe.sendError(response, "Failed to marshal challenge", err, http.StatusInternalServerError)
+		return
+	}
+
+	authzURL := wfe.AuthzBase + string(authz.ID)
+	response.Header().Add("Location", challenge.URI.String())
+	response.Header().Set("Content-Type", "application/json")
+	response.Header().Add("Link", link(authzURL, "up"))
+	response.WriteHeader(http.StatusAccepted)
+	if _, err = response.Write(jsonReply); err != nil {
+		logEvent.Error = err.Error()
+		wfe.log.Warning(fmt.Sprintf("Could not write response: %s", err))
+		return
+	}
 }
 
 // Registration is used by a client to submit an update to their registration.
@@ -874,7 +903,7 @@ func (wfe *WebFrontEndImpl) Registration(response http.ResponseWriter, request *
 	if err != nil {
 		logEvent.Error = err.Error()
 		respMsg := malformedJWS
-		respCode := http.StatusBadRequest
+		respCode := statusCodeFromError(err)
 		if err == sql.ErrNoRows {
 			respMsg = unknownKey
 			respCode = http.StatusForbidden
@@ -970,30 +999,42 @@ func (wfe *WebFrontEndImpl) Authorization(response http.ResponseWriter, request 
 
 	// If there is a fragment, then this is actually a request to a challenge URI
 	if len(request.URL.RawQuery) != 0 {
-		logEvent = wfe.challenge(authz, response, request, logEvent)
+		wfe.challenge(response, request, authz, &logEvent)
+	} else if request.Method == "GET" {
+		wfe.GetAuthorization(response, request, authz, &logEvent)
+	} else {
+		// For challenges, POST and GET are allowed. For authorizations only GET is
+		// allowed.
+		// TODO(jsha): Split challenge updates into a different path so we can use
+		// the HandleFunc functionality for declaring allowed methods.
+		// https://github.com/letsencrypt/boulder/issues/638
+		logEvent.Error = "Method not allowed"
+		response.Header().Set("Allow", "GET")
+		wfe.sendError(response, logEvent.Error, request.Method, http.StatusMethodNotAllowed)
+	}
+}
+
+func (wfe *WebFrontEndImpl) GetAuthorization(
+	response http.ResponseWriter,
+	request *http.Request,
+	authz core.Authorization,
+	logEvent *requestEvent) {
+	// Blank out ID and regID
+	authz.ID = ""
+	authz.RegistrationID = 0
+	jsonReply, err := json.Marshal(authz)
+	if err != nil {
+		logEvent.Error = err.Error()
+		// InternalServerError because this is a failure to decode from our DB.
+		wfe.sendError(response, "Failed to marshal authz", err, http.StatusInternalServerError)
 		return
 	}
-
-	// Blank out ID and regID
-	switch request.Method {
-	case "GET":
-		authz.ID = ""
-		authz.RegistrationID = 0
-
-		jsonReply, err := json.Marshal(authz)
-		if err != nil {
-			logEvent.Error = err.Error()
-			// InternalServerError because this is a failure to decode from our DB.
-			wfe.sendError(response, "Failed to marshal authz", err, http.StatusInternalServerError)
-			return
-		}
-		response.Header().Add("Link", link(wfe.NewCert, "next"))
-		response.Header().Set("Content-Type", "application/json")
-		response.WriteHeader(http.StatusOK)
-		if _, err = response.Write(jsonReply); err != nil {
-			logEvent.Error = err.Error()
-			wfe.log.Warning(fmt.Sprintf("Could not write response: %s", err))
-		}
+	response.Header().Add("Link", link(wfe.NewCert, "next"))
+	response.Header().Set("Content-Type", "application/json")
+	response.WriteHeader(http.StatusOK)
+	if _, err = response.Write(jsonReply); err != nil {
+		logEvent.Error = err.Error()
+		wfe.log.Warning(fmt.Sprintf("Could not write response: %s", err))
 	}
 }
 

@@ -12,52 +12,69 @@ import (
 	"crypto/x509/pkix"
 	"encoding/json"
 	"fmt"
-	"net/url"
-	"time"
-
-	jose "github.com/letsencrypt/boulder/Godeps/_workspace/src/github.com/letsencrypt/go-jose"
-	_ "github.com/letsencrypt/boulder/Godeps/_workspace/src/github.com/mattn/go-sqlite3"
-	"github.com/letsencrypt/boulder/core"
-	"github.com/letsencrypt/boulder/mocks"
-	"github.com/letsencrypt/boulder/test"
 	"io/ioutil"
 	"testing"
+	"time"
+
+	"github.com/letsencrypt/boulder/Godeps/_workspace/src/github.com/jmhodges/clock"
+	jose "github.com/letsencrypt/boulder/Godeps/_workspace/src/github.com/letsencrypt/go-jose"
+	"github.com/letsencrypt/boulder/core"
+	"github.com/letsencrypt/boulder/mocks"
+	"github.com/letsencrypt/boulder/sa/satest"
+	"github.com/letsencrypt/boulder/test"
 )
+
+const dbConnStr = "mysql+tcp://boulder@localhost:3306/boulder_sa_test"
 
 var log = mocks.UseMockLog()
 
-func initSA(t *testing.T) *SQLStorageAuthority {
-	sa, err := NewSQLStorageAuthority("sqlite3", ":memory:")
+// initSA constructs a SQLStorageAuthority and a clean up function
+// that should be defer'ed to the end of the test.
+func initSA(t *testing.T) (*SQLStorageAuthority, clock.FakeClock, func()) {
+	dbMap, err := NewDbMap(dbConnStr)
 	if err != nil {
-		t.Fatalf("Failed to create SA")
+		t.Fatalf("Failed to create dbMap: %s", err)
 	}
-	if err = sa.CreateTablesIfNotExists(); err != nil {
-		t.Fatalf("Failed to create SA")
+
+	fc := clock.NewFake()
+	fc.Add(1 * time.Hour)
+
+	sa, err := NewSQLStorageAuthority(dbMap, fc)
+	if err != nil {
+		t.Fatalf("Failed to create SA: %s", err)
 	}
-	return sa
+	cleanUp := test.ResetTestDatabase(t, dbMap.Db)
+	return sa, fc, cleanUp
 }
 
-var theKey = `{
-    "kty": "RSA",
-    "n": "n4EPtAOCc9AlkeQHPzHStgAbgs7bTZLwUBZdR8_KuKPEHLd4rHVTeT-O-XV2jRojdNhxJWTDvNd7nqQ0VEiZQHz_AJmSCpMaJMRBSFKrKb2wqVwGU_NsYOYL-QtiWN2lbzcEe6XC0dApr5ydQLrHqkHHig3RBordaZ6Aj-oBHqFEHYpPe7Tpe-OfVfHd1E6cS6M1FZcD1NNLYD5lFHpPI9bTwJlsde3uhGqC0ZCuEHg8lhzwOHrtIQbS0FVbb9k3-tVTU4fg_3L_vniUFAKwuCLqKnS2BYwdq_mzSnbLY7h_qixoR7jig3__kRhuaxwUkRz5iaiQkqgc5gHdrNP5zw",
-    "e": "AQAB"
+var (
+	anotherKey = `{
+	"kty":"RSA",
+	"n": "vd7rZIoTLEe-z1_8G1FcXSw9CQFEJgV4g9V277sER7yx5Qjz_Pkf2YVth6wwwFJEmzc0hoKY-MMYFNwBE4hQHw",
+	"e":"AQAB"
 }`
+)
 
 func TestAddRegistration(t *testing.T) {
-	sa := initSA(t)
+	sa, _, cleanUp := initSA(t)
+	defer cleanUp()
 
-	var jwk jose.JsonWebKey
-	err := json.Unmarshal([]byte(theKey), &jwk)
+	jwk := satest.GoodJWK()
+
+	contact, err := core.ParseAcmeURL("mailto:foo@example.com")
 	if err != nil {
-		t.Errorf("JSON unmarshal error: %+v", err)
-		return
+		t.Fatalf("unable to parse contact link: %s", err)
 	}
-
+	contacts := []*core.AcmeURL{contact}
 	reg, err := sa.NewRegistration(core.Registration{
-		Key: jwk,
+		Key:     jwk,
+		Contact: contacts,
 	})
-	test.AssertNotError(t, err, "Couldn't create new registration")
+	if err != nil {
+		t.Fatalf("Couldn't create new registration: %s", err)
+	}
 	test.Assert(t, reg.ID != 0, "ID shouldn't be 0")
+	test.AssertDeepEquals(t, reg.Contact, contacts)
 
 	_, err = sa.GetRegistration(0)
 	test.AssertError(t, err, "Registration object for ID 0 was returned")
@@ -72,28 +89,51 @@ func TestAddRegistration(t *testing.T) {
 	test.AssertEquals(t, dbReg.ID, expectedReg.ID)
 	test.Assert(t, core.KeyDigestEquals(dbReg.Key, expectedReg.Key), "Stored key != expected")
 
-	uu, err := url.Parse("test.com")
-	u := core.AcmeURL(*uu)
+	u, _ := core.ParseAcmeURL("test.com")
 
-	newReg := core.Registration{ID: reg.ID, Key: jwk, Contact: []core.AcmeURL{u}, Agreement: "yes"}
+	newReg := core.Registration{ID: reg.ID, Key: jwk, Contact: []*core.AcmeURL{u}, Agreement: "yes"}
 	err = sa.UpdateRegistration(newReg)
 	test.AssertNotError(t, err, fmt.Sprintf("Couldn't get registration with ID %v", reg.ID))
-
 	dbReg, err = sa.GetRegistrationByKey(jwk)
 	test.AssertNotError(t, err, "Couldn't get registration by key")
 
 	test.AssertEquals(t, dbReg.ID, newReg.ID)
 	test.AssertEquals(t, dbReg.Agreement, newReg.Agreement)
 
-	jwk.KeyID = "bad"
-	_, err = sa.GetRegistrationByKey(jwk)
+	var anotherJWK jose.JsonWebKey
+	err = json.Unmarshal([]byte(anotherKey), &anotherJWK)
+	test.AssertNotError(t, err, "couldn't unmarshal anotherJWK")
+	_, err = sa.GetRegistrationByKey(anotherJWK)
 	test.AssertError(t, err, "Registration object for invalid key was returned")
 }
 
-func TestAddAuthorization(t *testing.T) {
-	sa := initSA(t)
+func TestNoSuchRegistrationErrors(t *testing.T) {
+	sa, _, cleanUp := initSA(t)
+	defer cleanUp()
 
-	PA := core.Authorization{}
+	_, err := sa.GetRegistration(100)
+	if _, ok := err.(NoSuchRegistrationError); !ok {
+		t.Errorf("GetRegistration: expected NoSuchRegistrationError, got %T type error (%s)", err, err)
+	}
+
+	jwk := satest.GoodJWK()
+	_, err = sa.GetRegistrationByKey(jwk)
+	if _, ok := err.(NoSuchRegistrationError); !ok {
+		t.Errorf("GetRegistrationByKey: expected a NoSuchRegistrationError, got %T type error (%s)", err, err)
+	}
+
+	err = sa.UpdateRegistration(core.Registration{ID: 100, Key: jwk})
+	if _, ok := err.(NoSuchRegistrationError); !ok {
+		t.Errorf("UpdateRegistration: expected a NoSuchRegistrationError, got %T type error (%v)", err, err)
+	}
+}
+
+func TestAddAuthorization(t *testing.T) {
+	sa, _, cleanUp := initSA(t)
+	defer cleanUp()
+
+	reg := satest.CreateWorkingRegistration(t, sa)
+	PA := core.Authorization{RegistrationID: reg.ID}
 
 	PA, err := sa.NewPendingAuthorization(PA)
 	test.AssertNotError(t, err, "Couldn't create new pending authorization")
@@ -106,21 +146,12 @@ func TestAddAuthorization(t *testing.T) {
 	expectedPa := core.Authorization{ID: PA.ID}
 	test.AssertMarshaledEquals(t, dbPa.ID, expectedPa.ID)
 
-	var jwk jose.JsonWebKey
-	err = json.Unmarshal([]byte(theKey), &jwk)
-	if err != nil {
-		t.Errorf("JSON unmarshal error: %+v", err)
-		return
-	}
-
-	chall := core.SimpleHTTPChallenge()
-
 	combos := make([][]int, 1)
 	combos[0] = []int{0, 1}
 
 	exp := time.Now().AddDate(0, 0, 1)
 	identifier := core.AcmeIdentifier{Type: core.IdentifierDNS, Value: "wut.com"}
-	newPa := core.Authorization{ID: PA.ID, Identifier: identifier, RegistrationID: 0, Status: core.StatusPending, Expires: &exp, Challenges: []core.Challenge{chall}, Combinations: combos}
+	newPa := core.Authorization{ID: PA.ID, Identifier: identifier, RegistrationID: reg.ID, Status: core.StatusPending, Expires: &exp, Combinations: combos}
 	err = sa.UpdatePendingAuthorization(newPa)
 	test.AssertNotError(t, err, "Couldn't update pending authorization with ID "+PA.ID)
 
@@ -133,15 +164,21 @@ func TestAddAuthorization(t *testing.T) {
 }
 
 func CreateDomainAuth(t *testing.T, domainName string, sa *SQLStorageAuthority) (authz core.Authorization) {
+	return CreateDomainAuthWithRegId(t, domainName, sa, 42)
+}
+
+func CreateDomainAuthWithRegId(t *testing.T, domainName string, sa *SQLStorageAuthority, regID int64) (authz core.Authorization) {
+
 	// create pending auth
-	authz, err := sa.NewPendingAuthorization(core.Authorization{})
-	test.AssertNotError(t, err, "Couldn't create new pending authorization")
+	authz, err := sa.NewPendingAuthorization(core.Authorization{RegistrationID: regID, Challenges: []core.Challenge{core.Challenge{}}})
+	if err != nil {
+		t.Fatalf("Couldn't create new pending authorization: %s", err)
+	}
 	test.Assert(t, authz.ID != "", "ID shouldn't be blank")
 
 	// prepare challenge for auth
-	uu, err := url.Parse(domainName)
+	u, err := core.ParseAcmeURL(domainName)
 	test.AssertNotError(t, err, "Couldn't parse domainName "+domainName)
-	u := core.AcmeURL(*uu)
 	chall := core.Challenge{Type: "simpleHttp", Status: core.StatusValid, URI: u, Token: "THISWOULDNTBEAGOODTOKEN"}
 	combos := make([][]int, 1)
 	combos[0] = []int{0, 1}
@@ -150,7 +187,6 @@ func CreateDomainAuth(t *testing.T, domainName string, sa *SQLStorageAuthority) 
 	// validate pending auth
 	authz.Status = core.StatusPending
 	authz.Identifier = core.AcmeIdentifier{Type: core.IdentifierDNS, Value: domainName}
-	authz.RegistrationID = 42
 	authz.Expires = &exp
 	authz.Challenges = []core.Challenge{chall}
 	authz.Combinations = combos
@@ -164,14 +200,17 @@ func CreateDomainAuth(t *testing.T, domainName string, sa *SQLStorageAuthority) 
 
 // Ensure we get only valid authorization with correct RegID
 func TestGetLatestValidAuthorizationBasic(t *testing.T) {
-	sa := initSA(t)
+	sa, _, cleanUp := initSA(t)
+	defer cleanUp()
 
 	// attempt to get unauthorized domain
 	authz, err := sa.GetLatestValidAuthorization(0, core.AcmeIdentifier{Type: core.IdentifierDNS, Value: "example.org"})
 	test.AssertError(t, err, "Should not have found a valid auth for example.org")
 
+	reg := satest.CreateWorkingRegistration(t, sa)
+
 	// authorize "example.org"
-	authz = CreateDomainAuth(t, "example.org", sa)
+	authz = CreateDomainAuthWithRegId(t, "example.org", sa, reg.ID)
 
 	// finalize auth
 	authz.Status = core.StatusValid
@@ -183,24 +222,26 @@ func TestGetLatestValidAuthorizationBasic(t *testing.T) {
 	test.AssertError(t, err, "Should not have found a valid auth for example.org and regID 0")
 
 	// get authorized domain
-	authz, err = sa.GetLatestValidAuthorization(42, core.AcmeIdentifier{Type: core.IdentifierDNS, Value: "example.org"})
+	authz, err = sa.GetLatestValidAuthorization(reg.ID, core.AcmeIdentifier{Type: core.IdentifierDNS, Value: "example.org"})
 	test.AssertNotError(t, err, "Should have found a valid auth for example.org and regID 42")
 	test.AssertEquals(t, authz.Status, core.StatusValid)
 	test.AssertEquals(t, authz.Identifier.Type, core.IdentifierDNS)
 	test.AssertEquals(t, authz.Identifier.Value, "example.org")
-	test.AssertEquals(t, authz.RegistrationID, int64(42))
+	test.AssertEquals(t, authz.RegistrationID, reg.ID)
 }
 
 // Ensure we get the latest valid authorization for an ident
 func TestGetLatestValidAuthorizationMultiple(t *testing.T) {
-	sa := initSA(t)
+	sa, _, cleanUp := initSA(t)
+	defer cleanUp()
+
 	domain := "example.org"
 	ident := core.AcmeIdentifier{Type: core.IdentifierDNS, Value: domain}
-	regID := int64(42)
 	var err error
 
+	reg := satest.CreateWorkingRegistration(t, sa)
 	// create invalid authz
-	authz := CreateDomainAuth(t, domain, sa)
+	authz := CreateDomainAuthWithRegId(t, domain, sa, reg.ID)
 	exp := time.Now().AddDate(0, 0, 10) // expire in 10 day
 	authz.Expires = &exp
 	authz.Status = core.StatusInvalid
@@ -208,11 +249,11 @@ func TestGetLatestValidAuthorizationMultiple(t *testing.T) {
 	test.AssertNotError(t, err, "Couldn't finalize pending authorization with ID "+authz.ID)
 
 	// should not get the auth
-	authz, err = sa.GetLatestValidAuthorization(regID, ident)
+	authz, err = sa.GetLatestValidAuthorization(reg.ID, ident)
 	test.AssertError(t, err, "Should not have found a valid auth for "+domain)
 
 	// create valid auth
-	authz = CreateDomainAuth(t, domain, sa)
+	authz = CreateDomainAuthWithRegId(t, domain, sa, reg.ID)
 	exp = time.Now().AddDate(0, 0, 1) // expire in 1 day
 	authz.Expires = &exp
 	authz.Status = core.StatusValid
@@ -220,39 +261,42 @@ func TestGetLatestValidAuthorizationMultiple(t *testing.T) {
 	test.AssertNotError(t, err, "Couldn't finalize pending authorization with ID "+authz.ID)
 
 	// should get the valid auth even if it's expire date is lower than the invalid one
-	authz, err = sa.GetLatestValidAuthorization(regID, ident)
+	authz, err = sa.GetLatestValidAuthorization(reg.ID, ident)
 	test.AssertNotError(t, err, "Should have found a valid auth for "+domain)
 	test.AssertEquals(t, authz.Status, core.StatusValid)
 	test.AssertEquals(t, authz.Identifier.Type, ident.Type)
 	test.AssertEquals(t, authz.Identifier.Value, ident.Value)
-	test.AssertEquals(t, authz.RegistrationID, regID)
+	test.AssertEquals(t, authz.RegistrationID, reg.ID)
 
 	// create a newer auth
-	newAuthz := CreateDomainAuth(t, domain, sa)
+	newAuthz := CreateDomainAuthWithRegId(t, domain, sa, reg.ID)
 	exp = time.Now().AddDate(0, 0, 2) // expire in 2 day
 	newAuthz.Expires = &exp
 	newAuthz.Status = core.StatusValid
 	err = sa.FinalizeAuthorization(newAuthz)
 	test.AssertNotError(t, err, "Couldn't finalize pending authorization with ID "+newAuthz.ID)
 
-	authz, err = sa.GetLatestValidAuthorization(regID, ident)
+	authz, err = sa.GetLatestValidAuthorization(reg.ID, ident)
 	test.AssertNotError(t, err, "Should have found a valid auth for "+domain)
 	test.AssertEquals(t, authz.Status, core.StatusValid)
 	test.AssertEquals(t, authz.Identifier.Type, ident.Type)
 	test.AssertEquals(t, authz.Identifier.Value, ident.Value)
-	test.AssertEquals(t, authz.RegistrationID, regID)
+	test.AssertEquals(t, authz.RegistrationID, reg.ID)
 	// make sure we got the latest auth
 	test.AssertEquals(t, authz.ID, newAuthz.ID)
 }
 
 func TestAddCertificate(t *testing.T) {
-	sa := initSA(t)
+	sa, _, cleanUp := initSA(t)
+	defer cleanUp()
+
+	reg := satest.CreateWorkingRegistration(t, sa)
 
 	// An example cert taken from EFF's website
 	certDER, err := ioutil.ReadFile("www.eff.org.der")
 	test.AssertNotError(t, err, "Couldn't read example cert DER")
 
-	digest, err := sa.AddCertificate(certDER, 1)
+	digest, err := sa.AddCertificate(certDER, reg.ID)
 	test.AssertNotError(t, err, "Couldn't add www.eff.org.der")
 	test.AssertEquals(t, digest, "qWoItDZmR4P9eFbeYgXXP3SR4ApnkQj8x4LsB_ORKBo")
 
@@ -275,7 +319,7 @@ func TestAddCertificate(t *testing.T) {
 	certDER2, err := ioutil.ReadFile("test-cert.der")
 	test.AssertNotError(t, err, "Couldn't read example cert DER")
 
-	digest2, err := sa.AddCertificate(certDER2, 1)
+	digest2, err := sa.AddCertificate(certDER2, reg.ID)
 	test.AssertNotError(t, err, "Couldn't add test-cert.der")
 	test.AssertEquals(t, digest2, "CMVYqWzyqUW7pfBF2CxL0Uk6I0Upsk7p4EWSnd_vYx4")
 
@@ -298,7 +342,8 @@ func TestAddCertificate(t *testing.T) {
 // TestGetCertificateByShortSerial tests some failure conditions for GetCertificate.
 // Success conditions are tested above in TestAddCertificate.
 func TestGetCertificateByShortSerial(t *testing.T) {
-	sa := initSA(t)
+	sa, _, cleanUp := initSA(t)
+	defer cleanUp()
 
 	_, err := sa.GetCertificateByShortSerial("")
 	test.AssertError(t, err, "Should've failed on empty serial")
@@ -316,32 +361,42 @@ func TestDeniedCSR(t *testing.T) {
 	csrBytes, _ := x509.CreateCertificateRequest(rand.Reader, template, key)
 	csr, _ := x509.ParseCertificateRequest(csrBytes)
 
-	sa := initSA(t)
+	sa, _, cleanUp := initSA(t)
+	defer cleanUp()
+
 	exists, err := sa.AlreadyDeniedCSR(append(csr.DNSNames, csr.Subject.CommonName))
 	test.AssertNotError(t, err, "AlreadyDeniedCSR failed")
 	test.Assert(t, !exists, "Found non-existent CSR")
 }
 
 func TestUpdateOCSP(t *testing.T) {
-	sa := initSA(t)
+	sa, fc, cleanUp := initSA(t)
+	defer cleanUp()
 
+	reg := satest.CreateWorkingRegistration(t, sa)
 	// Add a cert to the DB to test with.
 	certDER, err := ioutil.ReadFile("www.eff.org.der")
 	test.AssertNotError(t, err, "Couldn't read example cert DER")
-	_, err = sa.AddCertificate(certDER, 1)
+	_, err = sa.AddCertificate(certDER, reg.ID)
 	test.AssertNotError(t, err, "Couldn't add www.eff.org.der")
 
 	serial := "00000000000000000000000000021bd4"
 	const ocspResponse = "this is a fake OCSP response"
+
+	certificateStatusObj, err := sa.dbMap.Get(core.CertificateStatus{}, serial)
+	beforeUpdate := certificateStatusObj.(*core.CertificateStatus)
+
+	fc.Add(1 * time.Hour)
+
 	err = sa.UpdateOCSP(serial, []byte(ocspResponse))
 	test.AssertNotError(t, err, "UpdateOCSP failed")
 
-	certificateStatusObj, err := sa.dbMap.Get(core.CertificateStatus{}, serial)
+	certificateStatusObj, err = sa.dbMap.Get(core.CertificateStatus{}, serial)
 	certificateStatus := certificateStatusObj.(*core.CertificateStatus)
 	test.AssertNotError(t, err, "Failed to fetch certificate status")
 	test.Assert(t,
-		certificateStatus.OCSPLastUpdated.After(time.Now().Add(-time.Second)),
-		"OCSP last updated too old.")
+		certificateStatus.OCSPLastUpdated.After(beforeUpdate.OCSPLastUpdated),
+		fmt.Sprintf("UpdateOCSP did not take. before: %s; after: %s", beforeUpdate.OCSPLastUpdated, certificateStatus.OCSPLastUpdated))
 
 	var fetchedOcspResponse core.OCSPResponse
 	err = sa.dbMap.SelectOne(&fetchedOcspResponse,
@@ -349,4 +404,56 @@ func TestUpdateOCSP(t *testing.T) {
 		serial)
 	test.AssertNotError(t, err, "Failed to fetch OCSP response")
 	test.AssertEquals(t, ocspResponse, string(fetchedOcspResponse.Response))
+}
+
+func TestMarkCertificateRevoked(t *testing.T) {
+	sa, fc, cleanUp := initSA(t)
+	defer cleanUp()
+
+	reg := satest.CreateWorkingRegistration(t, sa)
+	// Add a cert to the DB to test with.
+	certDER, err := ioutil.ReadFile("www.eff.org.der")
+	test.AssertNotError(t, err, "Couldn't read example cert DER")
+	_, err = sa.AddCertificate(certDER, reg.ID)
+	test.AssertNotError(t, err, "Couldn't add www.eff.org.der")
+
+	serial := "00000000000000000000000000021bd4"
+	const ocspResponse = "this is a fake OCSP response"
+
+	certificateStatusObj, err := sa.dbMap.Get(core.CertificateStatus{}, serial)
+	beforeStatus := certificateStatusObj.(*core.CertificateStatus)
+	test.AssertEquals(t, beforeStatus.Status, core.OCSPStatusGood)
+
+	fc.Add(1 * time.Hour)
+
+	code := core.RevocationCode(1)
+	err = sa.MarkCertificateRevoked(serial, []byte(ocspResponse), code)
+	test.AssertNotError(t, err, "MarkCertificateRevoked failed")
+
+	certificateStatusObj, err = sa.dbMap.Get(core.CertificateStatus{}, serial)
+	afterStatus := certificateStatusObj.(*core.CertificateStatus)
+	test.AssertNotError(t, err, "Failed to fetch certificate status")
+
+	if code != afterStatus.RevokedReason {
+		t.Errorf("RevokedReasons, expected %s, got %s", code, afterStatus.RevokedReason)
+	}
+	if !fc.Now().Equal(afterStatus.RevokedDate) {
+		t.Errorf("RevokedData, expected %s, got %s", fc.Now(), afterStatus.RevokedDate)
+	}
+	if !fc.Now().Equal(afterStatus.OCSPLastUpdated) {
+		t.Errorf("OCSPLastUpdated, expected %s, got %s", fc.Now(), afterStatus.OCSPLastUpdated)
+	}
+
+	if !afterStatus.OCSPLastUpdated.After(beforeStatus.OCSPLastUpdated) {
+		t.Errorf("OCSPLastUpdated did not update correctly. before: %s; after: %s",
+			beforeStatus.OCSPLastUpdated, afterStatus.OCSPLastUpdated)
+	}
+	var fetched core.OCSPResponse
+	err = sa.dbMap.SelectOne(&fetched,
+		`SELECT * from ocspResponses where serial = ? order by createdAt DESC limit 1;`,
+		serial)
+	test.AssertNotError(t, err, "Failed to fetch OCSP response")
+	if ocspResponse != string(fetched.Response) {
+		t.Errorf("OCSPResponse response, expected %#v, got %#v", ocspResponse, string(fetched.Response))
+	}
 }

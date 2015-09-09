@@ -6,47 +6,13 @@
 package mocks
 
 import (
-	"database/sql"
 	"fmt"
 	"net"
 	"strings"
 	"time"
 
-	// Load SQLite3 for test purposes
-	_ "github.com/letsencrypt/boulder/Godeps/_workspace/src/github.com/mattn/go-sqlite3"
 	"github.com/letsencrypt/boulder/Godeps/_workspace/src/github.com/miekg/dns"
-	gorp "github.com/letsencrypt/boulder/Godeps/_workspace/src/gopkg.in/gorp.v1"
 )
-
-// MockCADatabase is a mock
-type MockCADatabase struct {
-	db    *gorp.DbMap
-	count int64
-}
-
-// NewMockCertificateAuthorityDatabase is a mock
-func NewMockCertificateAuthorityDatabase() (mock *MockCADatabase, err error) {
-	db, err := sql.Open("sqlite3", ":memory:")
-	dbmap := &gorp.DbMap{Db: db, Dialect: gorp.SqliteDialect{}}
-	mock = &MockCADatabase{db: dbmap, count: 1}
-	return mock, err
-}
-
-// Begin is a mock
-func (cadb *MockCADatabase) Begin() (*gorp.Transaction, error) {
-	return cadb.db.Begin()
-}
-
-// IncrementAndGetSerial is a mock
-func (cadb *MockCADatabase) IncrementAndGetSerial(*gorp.Transaction) (int64, error) {
-	cadb.count = cadb.count + 1
-	return cadb.count, nil
-}
-
-// CreateTablesIfNotExists is a mock
-func (cadb *MockCADatabase) CreateTablesIfNotExists() error {
-	return nil
-}
 
 // MockDNS is a mock
 type MockDNS struct {
@@ -66,8 +32,12 @@ func (mock *MockDNS) LookupTXT(hostname string) ([]string, time.Duration, error)
 }
 
 // LookupHost is a mock
-func (mock *MockDNS) LookupHost(hostname string) ([]net.IP, time.Duration, time.Duration, error) {
-	return nil, 0, 0, nil
+func (mock *MockDNS) LookupHost(hostname string) ([]net.IP, time.Duration, error) {
+	if hostname == "always.invalid" || hostname == "invalid.invalid" {
+		return []net.IP{}, 0, nil
+	}
+	ip := net.ParseIP("127.0.0.1")
+	return []net.IP{ip}, 0, nil
 }
 
 // LookupCNAME is a mock

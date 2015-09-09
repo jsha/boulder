@@ -115,7 +115,7 @@ func cmpStrSlice(a, b []string) bool {
 	return true
 }
 
-func cmpExtKeyUsageSlice(a, b []x509.ExtKeyUsage) bool {
+func CmpExtKeyUsageSlice(a, b []x509.ExtKeyUsage) bool {
 	if len(a) != len(b) {
 		return false
 	}
@@ -201,15 +201,13 @@ type Registration struct {
 	ID int64 `json:"id" db:"id"`
 
 	// Account key to which the details are attached
-	Key jose.JsonWebKey `json:"key" db:"jwk"`
+	Key jose.JsonWebKey `json:"key"`
 
 	// Contact URIs
-	Contact []AcmeURL `json:"contact,omitempty" db:"contact"`
+	Contact []*AcmeURL `json:"contact,omitempty"`
 
 	// Agreement with terms of service
-	Agreement string `json:"agreement,omitempty" db:"agreement"`
-
-	LockCol int64 `json:"-"`
+	Agreement string `json:"agreement,omitempty"`
 }
 
 // MergeUpdate copies a subset of information from the input Registration
@@ -222,6 +220,19 @@ func (r *Registration) MergeUpdate(input Registration) {
 	if len(input.Agreement) > 0 {
 		r.Agreement = input.Agreement
 	}
+}
+
+// ValidationRecord represents a validation attempt against a specific URL/hostname
+// and the IP addresses that were resolved and used
+type ValidationRecord struct {
+	// SimpleHTTP only
+	URL string `json:"url,omitempty"`
+
+	// Shared
+	Hostname          string   `json:"hostname"`
+	Port              string   `json:"port"`
+	AddressesResolved []net.IP `json:"addressesResolved"`
+	AddressUsed       net.IP   `json:"addressUsed"`
 }
 
 // Challenge is an aggregate of all data needed for any challenges.
@@ -244,7 +255,7 @@ type Challenge struct {
 	Validated *time.Time `json:"validated,omitempty"`
 
 	// A URI to which a response can be POSTed
-	URI AcmeURL `json:"uri"`
+	URI *AcmeURL `json:"uri"`
 
 	// Used by simpleHttp, dvsni, and dns challenges
 	Token string `json:"token,omitempty"`
@@ -254,12 +265,63 @@ type Challenge struct {
 
 	// Used by dns and dvsni challenges
 	Validation *jose.JsonWebSignature `json:"validation,omitempty"`
+
+	// Contains information about URLs used or redirected to and IPs resolved and
+	// used
+	ValidationRecord []ValidationRecord `json:"validationRecord,omitempty"`
+
+	// The account key used to create this challenge.  This is not part of the
+	// spec, but clients are required to ignore unknown fields, so it's harmless
+	// to include.
+	//
+	// Boulder needs to remember what key was used to create a challenge in order
+	// to prevent an attacker from re-using a validation signature with a different,
+	// unauthorized key. See:
+	//   https://mailarchive.ietf.org/arch/msg/acme/F71iz6qq1o_QPVhJCV4dqWf-4Yc
+	AccountKey *jose.JsonWebKey `json:"accountKey,omitempty"`
+}
+
+// RecordsSane checks the sanity of a ValidationRecord object before sending it
+// back to the RA to be stored.
+func (ch Challenge) RecordsSane() bool {
+	if ch.ValidationRecord == nil || len(ch.ValidationRecord) == 0 {
+		return false
+	}
+
+	switch ch.Type {
+	case ChallengeTypeSimpleHTTP:
+		for _, rec := range ch.ValidationRecord {
+			if rec.URL == "" || rec.Hostname == "" || rec.Port == "" || rec.AddressUsed == nil ||
+				len(rec.AddressesResolved) == 0 {
+				return false
+			}
+		}
+	case ChallengeTypeDVSNI:
+		if len(ch.ValidationRecord) > 1 {
+			return false
+		}
+		if ch.ValidationRecord[0].URL != "" {
+			return false
+		}
+		if ch.ValidationRecord[0].Hostname == "" || ch.ValidationRecord[0].Port == "" ||
+			ch.ValidationRecord[0].AddressUsed == nil || len(ch.ValidationRecord[0].AddressesResolved) == 0 {
+			return false
+		}
+	case ChallengeTypeDNS:
+		// Nothing for now
+	}
+
+	return true
 }
 
 // IsSane checks the sanity of a challenge object before issued to the client
 // (completed = false) and before validation (completed = true).
 func (ch Challenge) IsSane(completed bool) bool {
 	if ch.Status != StatusPending {
+		return false
+	}
+
+	if ch.AccountKey == nil {
 		return false
 	}
 
@@ -302,7 +364,6 @@ func (ch Challenge) IsSane(completed bool) bool {
 		if completed && ch.Validation == nil {
 			return false
 		}
-
 	default:
 		return false
 	}
@@ -363,7 +424,7 @@ type Authorization struct {
 	// in process, these are challenges to be fulfilled; for
 	// final authorizations, they describe the evidence that
 	// the server used in support of granting the authorization.
-	Challenges []Challenge `json:"challenges,omitempty" db:"challenges"`
+	Challenges []Challenge `json:"challenges,omitempty" db:"-"`
 
 	// The server may suggest combinations of challenges if it
 	// requires more than one challenge to be completed.
@@ -408,16 +469,39 @@ func (jb *JSONBuffer) UnmarshalJSON(data []byte) (err error) {
 type Certificate struct {
 	RegistrationID int64 `db:"registrationID"`
 
-	// The revocation status of the certificate.
-	// * "valid" - not revoked
-	// * "revoked" - revoked
-	Status AcmeStatus `db:"status"`
-
 	Serial  string    `db:"serial"`
 	Digest  string    `db:"digest"`
 	DER     []byte    `db:"der"`
 	Issued  time.Time `db:"issued"`
 	Expires time.Time `db:"expires"`
+}
+
+type IssuedCertIdentifierData struct {
+	ReversedName string
+	Serial       string
+}
+
+// IdentifierData holds information about what certificates are known for a
+// given identifier. This is used to present Proof of Posession challenges in
+// the case where a certificate already exists. The DB table holding
+// IdentifierData rows contains information about certs issued by Boulder and
+// also information about certs observed from third parties.
+type IdentifierData struct {
+	ReversedName string `db:"reversedName"` // The label-wise reverse of an identifier, e.g. com.example or com.example.*
+	CertSHA1     string `db:"certSHA1"`     // The hex encoding of the SHA-1 hash of a cert containing the identifier
+}
+
+// ExternalCert holds information about certificates issued by other CAs,
+// obtained through Certificate Transparency, the SSL Observatory, or scans.io.
+type ExternalCert struct {
+	SHA1     string    `db:"sha1"`       // The hex encoding of the SHA-1 hash of this cert
+	Issuer   string    `db:"issuer"`     // The Issuer field of this cert
+	Subject  string    `db:"subject"`    // The Subject field of this cert
+	NotAfter time.Time `db:"notAfter"`   // Date after which this cert should be considered invalid
+	SPKI     []byte    `db:"spki"`       // The hex encoding of the certificate's SubjectPublicKeyInfo in DER form
+	Valid    bool      `db:"valid"`      // Whether this certificate was valid at LastUpdated time
+	EV       bool      `db:"ev"`         // Whether this cert was EV valid
+	CertDER  []byte    `db:"rawDERCert"` // DER (binary) encoding of the raw certificate
 }
 
 // MatchesCSR tests the contents of a generated certificate to make sure
@@ -488,7 +572,7 @@ func (cert Certificate) MatchesCSR(csr *x509.CertificateRequest, earliestExpiry 
 		err = InternalServerError("Generated certificate can sign other certificates")
 		return
 	}
-	if !cmpExtKeyUsageSlice(parsedCertificate.ExtKeyUsage, []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth, x509.ExtKeyUsageClientAuth}) {
+	if !CmpExtKeyUsageSlice(parsedCertificate.ExtKeyUsage, []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth, x509.ExtKeyUsageClientAuth}) {
 		err = InternalServerError("Generated certificate doesn't have correct key usage extensions")
 		return
 	}
@@ -522,7 +606,9 @@ type CertificateStatus struct {
 	// revokedReason: If status is 'revoked', this is the reason code for the
 	//   revocation. Otherwise it is zero (which happens to be the reason
 	//   code for 'unspecified').
-	RevokedReason int `db:"revokedReason"`
+	RevokedReason RevocationCode `db:"revokedReason"`
+
+	LastExpirationNagSent time.Time `db:"lastExpirationNagSent"`
 
 	LockCol int64 `json:"-"`
 }
@@ -569,6 +655,39 @@ type DeniedCSR struct {
 type OCSPSigningRequest struct {
 	CertDER   []byte
 	Status    string
-	Reason    int
+	Reason    RevocationCode
 	RevokedAt time.Time
+}
+
+// RevocationCode is used to specify a certificate revocation reason
+type RevocationCode int
+
+type RevocationCodes []RevocationCode
+
+func (rc RevocationCodes) Len() int {
+	return len(rc)
+}
+
+func (rc RevocationCodes) Less(i, j int) bool {
+	return rc[i] < rc[j]
+}
+
+func (rc RevocationCodes) Swap(i, j int) {
+	rc[i], rc[j] = rc[j], rc[i]
+}
+
+// RevocationReasons provides a map from reason code to string explaining the
+// code
+var RevocationReasons = map[RevocationCode]string{
+	0: "unspecified",
+	1: "keyCompromise",
+	2: "cACompromise",
+	3: "affiliationChanged",
+	4: "superseded",
+	5: "cessationOfOperation",
+	6: "certificateHold",
+	// 7 is unused
+	8:  "removeFromCRL", // needed?
+	9:  "privilegeWithdrawn",
+	10: "aAcompromise",
 }

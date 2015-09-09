@@ -37,7 +37,7 @@ type OCSPUpdater struct {
 }
 
 func setupClients(c cmd.Config) (rpc.CertificateAuthorityClient, chan *amqp.Error) {
-	ch, err := cmd.AmqpChannel(c)
+	ch, err := rpc.AmqpChannel(c)
 	cmd.FailOnError(err, "Could not connect to AMQP")
 
 	closeChan := ch.NotifyClose(make(chan *amqp.Error, 1))
@@ -184,7 +184,7 @@ func (updater *OCSPUpdater) findStaleResponses(oldestLastUpdatedTime time.Time, 
 }
 
 func main() {
-	app := cmd.NewAppShell("ocsp-updater")
+	app := cmd.NewAppShell("ocsp-updater", "Generates and updates OCSP responses")
 
 	app.App.Flags = append(app.App.Flags, cli.IntFlag{
 		Name:   "limit",
@@ -214,7 +214,7 @@ func main() {
 		go cmd.DebugServer(c.OCSPUpdater.DebugAddr)
 
 		// Configure DB
-		dbMap, err := sa.NewDbMap(c.OCSPUpdater.DBDriver, c.OCSPUpdater.DBConnect)
+		dbMap, err := sa.NewDbMap(c.OCSPUpdater.DBConnect)
 		cmd.FailOnError(err, "Could not connect to database")
 
 		cac, closeChan := setupClients(c)
@@ -223,7 +223,7 @@ func main() {
 			// Abort if we disconnect from AMQP
 			for {
 				for err := range closeChan {
-					auditlogger.Warning(fmt.Sprintf("AMQP Channel closed, aborting early: [%s]", err))
+					auditlogger.Warning(fmt.Sprintf(" [!] AMQP Channel closed, aborting early: [%s]", err))
 					panic(err)
 				}
 			}

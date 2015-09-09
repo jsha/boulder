@@ -13,51 +13,31 @@ var util = require('./acme-util');
 var forge = require('node-forge');
 var fs = require('fs');
 var request = require('request');
+var Acme = require('./acme');
 
 function main() {
   if (process.argv.length != 5) {
     console.log('Usage: js revoke.js cert.der key.pem REVOKE_URL');
     process.exit(1);
   }
+  var certFile = process.argv[2];
   var key = crypto.importPemPrivateKey(fs.readFileSync(process.argv[3]));
-  var certDER = fs.readFileSync(process.argv[2])
+  var acme = new Acme(key);
+  var certDER = fs.readFileSync(certFile)
+  if (certDER.toString().match(/-----BEGIN/)) {
+    console.log('Got PEM, expected DER:', certFile);
+    process.exit(1);
+  }
   var revokeUrl = process.argv[4];
   var certDERB64URL = util.b64enc(new Buffer(certDER))
-  var revokeMessage = JSON.stringify({
-    resource: "revoke-cert",
+  console.log('Attempting to revoke', certFile);
+  acme.post(revokeUrl, {
+    resource: 'revoke-cert',
     certificate: certDERB64URL
-  });
-  console.log('Requesting revocation:', revokeMessage)
-
-  request.head(revokeUrl, function(error, response, body) {
-    if (error) {
-      console.log(error);
-      process.exit(1);
-    } else if (response.statusCode != 200) {
-      console.log("Got non-200 response: ", response.statusCode);
+  }, function(err, response, body) {
+    if (!err && response.statusCode === 200) {
+      console.log('Success');
     }
-    console.log(response.headers);
-    var nonce = response.headers["replay-nonce"];
-    if (!nonce) {
-      console.log("Server HEAD response did not include a replay nonce");
-      process.exit(1);
-    }
-
-    var jws = crypto.generateSignature(key, new Buffer(revokeMessage), nonce);
-    var payload = JSON.stringify(jws);
-    console.log(payload);
-
-    var req = request.post(revokeUrl, function(error, response) {
-      if (error) {
-        console.log('Error: ', error);
-        process.exit(1);
-      }
-      console.log(response.statusCode);
-      console.log(response.headers);
-      console.log(response.body);
-    });
-    req.write(payload);
-    req.end();
   });
 }
 main();

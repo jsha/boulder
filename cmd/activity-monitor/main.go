@@ -16,6 +16,7 @@ import (
 
 	"github.com/letsencrypt/boulder/Godeps/_workspace/src/github.com/cactus/go-statsd-client/statsd"
 	"github.com/letsencrypt/boulder/Godeps/_workspace/src/github.com/streadway/amqp"
+	"github.com/letsencrypt/boulder/rpc"
 
 	"github.com/letsencrypt/boulder/analysis"
 	"github.com/letsencrypt/boulder/cmd"
@@ -138,7 +139,7 @@ func startMonitor(rpcCh *amqp.Channel, logger *blog.AuditLogger, stats statsd.St
 }
 
 func main() {
-	app := cmd.NewAppShell("activity-monitor")
+	app := cmd.NewAppShell("activity-monitor", "RPC activity monitor")
 
 	app.Action = func(c cmd.Config) {
 		stats, err := statsd.NewClient(c.Statsd.Server, c.Statsd.Prefix)
@@ -153,7 +154,7 @@ func main() {
 
 		go cmd.DebugServer(c.ActivityMonitor.DebugAddr)
 
-		ch, err := cmd.AmqpChannel(c)
+		ch, err := rpc.AmqpChannel(c)
 
 		cmd.FailOnError(err, "Could not connect to AMQP")
 

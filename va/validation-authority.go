@@ -17,6 +17,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -29,6 +30,9 @@ import (
 )
 
 const maxCNAME = 16 // Prevents infinite loops. Same limit as BIND.
+const maxRedirect = 10
+
+var validationTimeout = time.Second * 5
 
 // Returned by CheckCAARecords if it has to follow too many
 // consecutive CNAME lookups.
@@ -36,20 +40,34 @@ var ErrTooManyCNAME = errors.New("too many CNAME/DNAME lookups")
 
 // ValidationAuthorityImpl represents a VA
 type ValidationAuthorityImpl struct {
-	RA           core.RegistrationAuthority
-	log          *blog.AuditLogger
-	DNSResolver  core.DNSResolver
-	IssuerDomain string
-	TestMode     bool
-	UserAgent    string
+	RA              core.RegistrationAuthority
+	log             *blog.AuditLogger
+	DNSResolver     core.DNSResolver
+	IssuerDomain    string
+	simpleHTTPPort  int
+	simpleHTTPSPort int
+	dvsniPort       int
+	UserAgent       string
 }
 
-// NewValidationAuthorityImpl constructs a new VA, and may place it
-// into Test Mode (tm)
-func NewValidationAuthorityImpl(tm bool) ValidationAuthorityImpl {
+// PortConfig specifies what ports the VA should call to on the remote
+// host when performing its checks.
+type PortConfig struct {
+	SimpleHTTPPort  int
+	SimpleHTTPSPort int
+	DVSNIPort       int
+}
+
+// NewValidationAuthorityImpl constructs a new VA
+func NewValidationAuthorityImpl(pc *PortConfig) *ValidationAuthorityImpl {
 	logger := blog.GetAuditLogger()
 	logger.Notice("Validation Authority Starting")
-	return ValidationAuthorityImpl{log: logger, TestMode: tm}
+	return &ValidationAuthorityImpl{
+		log:             logger,
+		simpleHTTPPort:  pc.SimpleHTTPPort,
+		simpleHTTPSPort: pc.SimpleHTTPSPort,
+		dvsniPort:       pc.DVSNIPort,
+	}
 }
 
 // Used for audit logging
@@ -62,9 +80,7 @@ type verificationRequestEvent struct {
 	Error        string         `json:",omitempty"`
 }
 
-// TODO Update jws.go to accept jose.JsonWebKey in newVerifier
 func verifyValidationJWS(validation *jose.JsonWebSignature, accountKey *jose.JsonWebKey, target map[string]interface{}) error {
-
 	if len(validation.Signatures) > 1 {
 		return fmt.Errorf("Too many signatures on validation JWS")
 	}
@@ -99,26 +115,83 @@ func verifyValidationJWS(validation *jose.JsonWebSignature, accountKey *jose.Jso
 	return nil
 }
 
-// Validation methods
-
-// setChallengeErrorFromDNSError checks the error returned from Lookup...
+// problemDetailsFromDNSError checks the error returned from Lookup...
 // methods and tests if the error was an underlying net.OpError or an error
-// caused by resolver returning SERVFAIL or other invalid Rcodes and sets
-// the challenge.Error field accordingly.
-func setChallengeErrorFromDNSError(err error, challenge *core.Challenge) {
-	challenge.Error = &core.ProblemDetails{Type: core.ConnectionProblem}
+// caused by resolver returning SERVFAIL or other invalid Rcodes and returns
+// the relevant core.ProblemDetails.
+func problemDetailsFromDNSError(err error) *core.ProblemDetails {
+	problem := &core.ProblemDetails{Type: core.ConnectionProblem}
 	if netErr, ok := err.(*net.OpError); ok {
 		if netErr.Timeout() {
-			challenge.Error.Detail = "DNS query timed out"
+			problem.Detail = "DNS query timed out"
 		} else if netErr.Temporary() {
-			challenge.Error.Detail = "Temporary network connectivity error"
+			problem.Detail = "Temporary network connectivity error"
 		}
 	} else {
-		challenge.Error.Detail = "Server failure at resolver"
+		problem.Detail = "Server failure at resolver"
 	}
+	return problem
 }
 
-func (va ValidationAuthorityImpl) validateSimpleHTTP(identifier core.AcmeIdentifier, input core.Challenge, accountKey jose.JsonWebKey) (core.Challenge, error) {
+// getAddr will query for all A records associated with hostname and return the
+// prefered address, the first net.IP in the addrs slice, and all addresses resolved.
+// This is the same choice made by the Go internal resolution library used by
+// net/http, except we only send A queries and accept IPv4 addresses.
+// TODO(#593): Add IPv6 support
+func (va *ValidationAuthorityImpl) getAddr(hostname string) (addr net.IP, addrs []net.IP, problem *core.ProblemDetails) {
+	addrs, _, err := va.DNSResolver.LookupHost(hostname)
+	if err != nil {
+		problem = problemDetailsFromDNSError(err)
+		va.log.Debug(fmt.Sprintf("%s DNS failure: %s", hostname, err))
+		return
+	}
+	if len(addrs) == 0 {
+		problem = &core.ProblemDetails{
+			Type:   core.UnknownHostProblem,
+			Detail: fmt.Sprintf("No IPv4 addresses found for %s", hostname),
+		}
+		return
+	}
+	addr = addrs[0]
+	va.log.Info(fmt.Sprintf("Resolved addresses for %s [using %s]: %s", hostname, addr, addrs))
+	return
+}
+
+type dialer struct {
+	record core.ValidationRecord
+}
+
+func (d *dialer) Dial(_, _ string) (net.Conn, error) {
+	realDialer := net.Dialer{Timeout: validationTimeout}
+	return realDialer.Dial("tcp", net.JoinHostPort(d.record.AddressUsed.String(), d.record.Port))
+}
+
+// resolveAndConstructDialer gets the prefered address using va.getAddr and returns
+// the chosen address and dialer for that address and correct port.
+func (va *ValidationAuthorityImpl) resolveAndConstructDialer(name, defaultPort string) (dialer, *core.ProblemDetails) {
+	port := fmt.Sprintf("%d", va.simpleHTTPPort)
+	if defaultPort != "" {
+		port = defaultPort
+	}
+	d := dialer{
+		record: core.ValidationRecord{
+			Hostname: name,
+			Port:     port,
+		},
+	}
+
+	addr, allAddrs, err := va.getAddr(name)
+	if err != nil {
+		return d, err
+	}
+	d.record.AddressesResolved = allAddrs
+	d.record.AddressUsed = addr
+	return d, nil
+}
+
+// Validation methods
+
+func (va *ValidationAuthorityImpl) validateSimpleHTTP(identifier core.AcmeIdentifier, input core.Challenge) (core.Challenge, error) {
 	challenge := input
 
 	if identifier.Type != core.IdentifierDNS {
@@ -131,23 +204,29 @@ func (va ValidationAuthorityImpl) validateSimpleHTTP(identifier core.AcmeIdentif
 		va.log.Debug(fmt.Sprintf("SimpleHTTP [%s] Identifier failure", identifier))
 		return challenge, challenge.Error
 	}
-	hostName := identifier.Value
 
+	host := identifier.Value
 	var scheme string
+	var port int
 	if input.TLS == nil || (input.TLS != nil && *input.TLS) {
 		scheme = "https"
+		port = va.simpleHTTPSPort
 	} else {
 		scheme = "http"
+		port = va.simpleHTTPPort
 	}
-	if va.TestMode {
-		hostName = "localhost:5001"
-	}
+	portString := fmt.Sprintf("%d", port)
+	hostPort := net.JoinHostPort(host, portString)
 
-	url := fmt.Sprintf("%s://%s/.well-known/acme-challenge/%s", scheme, hostName, challenge.Token)
+	url := &url.URL{
+		Scheme: scheme,
+		Host:   hostPort,
+		Path:   fmt.Sprintf(".well-known/acme-challenge/%s", challenge.Token),
+	}
 
 	// AUDIT[ Certificate Requests ] 11917fa4-10ef-4e0d-9105-bacbe7836a3c
 	va.log.Audit(fmt.Sprintf("Attempting to validate Simple%s for %s", strings.ToUpper(scheme), url))
-	httpRequest, err := http.NewRequest("GET", url, nil)
+	httpRequest, err := http.NewRequest("GET", url.String(), nil)
 	if err != nil {
 		challenge.Error = &core.ProblemDetails{
 			Type:   core.MalformedProblem,
@@ -162,7 +241,16 @@ func (va ValidationAuthorityImpl) validateSimpleHTTP(identifier core.AcmeIdentif
 		httpRequest.Header["User-Agent"] = []string{va.UserAgent}
 	}
 
-	httpRequest.Host = hostName
+	httpRequest.Host = hostPort
+	dialer, prob := va.resolveAndConstructDialer(host, portString)
+	dialer.record.URL = url.String()
+	challenge.ValidationRecord = append(challenge.ValidationRecord, dialer.record)
+	if prob != nil {
+		challenge.Status = core.StatusInvalid
+		challenge.Error = prob
+		return challenge, prob
+	}
+
 	tr := &http.Transport{
 		// We are talking to a client that does not yet have a certificate,
 		// so we accept a temporary, invalid one.
@@ -170,18 +258,51 @@ func (va ValidationAuthorityImpl) validateSimpleHTTP(identifier core.AcmeIdentif
 		// We don't expect to make multiple requests to a client, so close
 		// connection immediately.
 		DisableKeepAlives: true,
+		// Intercept Dial in order to connect to the IP address we
+		// select.
+		Dial: dialer.Dial,
 	}
+
 	logRedirect := func(req *http.Request, via []*http.Request) error {
-		va.log.Info(fmt.Sprintf("validateSimpleHTTP [%s] redirect from %q to %q", identifier, via[len(via)-1].URL.String(), req.URL.String()))
+		if len(challenge.ValidationRecord) >= maxRedirect {
+			return fmt.Errorf("Too many redirects")
+		}
+
+		reqHost := req.URL.Host
+		reqPort := ""
+		if strings.Contains(reqHost, ":") {
+			splitHost := strings.SplitN(reqHost, ":", 2)
+			if len(splitHost) <= 1 {
+				return fmt.Errorf("Malformed host")
+			}
+			reqHost, reqPort = splitHost[0], splitHost[1]
+			portNum, err := strconv.Atoi(reqPort)
+			if err != nil {
+				return err
+			}
+			if portNum < 0 || portNum > 65535 {
+				return fmt.Errorf("Invalid port number in redirect")
+			}
+		} else if strings.ToLower(req.URL.Scheme) == "https" {
+			reqPort = "443"
+		}
+
+		dialer, err := va.resolveAndConstructDialer(reqHost, reqPort)
+		dialer.record.URL = req.URL.String()
+		challenge.ValidationRecord = append(challenge.ValidationRecord, dialer.record)
+		if err != nil {
+			return err
+		}
+		tr.Dial = dialer.Dial
+		va.log.Info(fmt.Sprintf("validateSimpleHTTP [%s] redirect from %q to %q [%s]", identifier, via[len(via)-1].URL.String(), req.URL.String(), dialer.record.AddressUsed))
 		return nil
 	}
 	client := http.Client{
 		Transport:     tr,
 		CheckRedirect: logRedirect,
-		Timeout:       5 * time.Second,
+		Timeout:       validationTimeout,
 	}
 	httpResponse, err := client.Do(httpRequest)
-
 	if err != nil {
 		challenge.Status = core.StatusInvalid
 		challenge.Error = &core.ProblemDetails{
@@ -196,8 +317,8 @@ func (va ValidationAuthorityImpl) validateSimpleHTTP(identifier core.AcmeIdentif
 		challenge.Status = core.StatusInvalid
 		challenge.Error = &core.ProblemDetails{
 			Type: core.UnauthorizedProblem,
-			Detail: fmt.Sprintf("Invalid response from %s: %d",
-				url, httpResponse.StatusCode),
+			Detail: fmt.Sprintf("Invalid response from %s [%s]: %d",
+				url.String(), dialer.record.AddressUsed, httpResponse.StatusCode),
 		}
 		err = challenge.Error
 		return challenge, err
@@ -236,7 +357,7 @@ func (va ValidationAuthorityImpl) validateSimpleHTTP(identifier core.AcmeIdentif
 		"token": challenge.Token,
 		"tls":   (challenge.TLS == nil) || *challenge.TLS,
 	}
-	err = verifyValidationJWS(parsedJws, &accountKey, target)
+	err = verifyValidationJWS(parsedJws, challenge.AccountKey, target)
 	if err != nil {
 		va.log.Debug(err.Error())
 		challenge.Status = core.StatusInvalid
@@ -251,7 +372,7 @@ func (va ValidationAuthorityImpl) validateSimpleHTTP(identifier core.AcmeIdentif
 	return challenge, nil
 }
 
-func (va ValidationAuthorityImpl) validateDvsni(identifier core.AcmeIdentifier, input core.Challenge, accountKey jose.JsonWebKey) (core.Challenge, error) {
+func (va *ValidationAuthorityImpl) validateDvsni(identifier core.AcmeIdentifier, input core.Challenge) (core.Challenge, error) {
 	challenge := input
 
 	if identifier.Type != "dns" {
@@ -271,7 +392,7 @@ func (va ValidationAuthorityImpl) validateDvsni(identifier core.AcmeIdentifier, 
 		"type":  core.ChallengeTypeDVSNI,
 		"token": challenge.Token,
 	}
-	err := verifyValidationJWS((*jose.JsonWebSignature)(challenge.Validation), &accountKey, target)
+	err := verifyValidationJWS(challenge.Validation, challenge.AccountKey, target)
 	if err != nil {
 		va.log.Debug(err.Error())
 		challenge.Status = core.StatusInvalid
@@ -289,14 +410,27 @@ func (va ValidationAuthorityImpl) validateDvsni(identifier core.AcmeIdentifier, 
 	Z := hex.EncodeToString(h.Sum(nil))
 	ZName := fmt.Sprintf("%s.%s.%s", Z[:32], Z[32:], core.DVSNISuffix)
 
-	// Make a connection with SNI = nonceName
-	hostPort := identifier.Value + ":443"
-	if va.TestMode {
-		hostPort = "localhost:5001"
+	addr, allAddrs, problem := va.getAddr(identifier.Value)
+	challenge.ValidationRecord = []core.ValidationRecord{
+		core.ValidationRecord{
+			Hostname:          identifier.Value,
+			AddressesResolved: allAddrs,
+			AddressUsed:       addr,
+		},
 	}
+	if problem != nil {
+		challenge.Status = core.StatusInvalid
+		challenge.Error = problem
+		return challenge, challenge.Error
+	}
+
+	// Make a connection with SNI = nonceName
+	portString := fmt.Sprintf("%d", va.dvsniPort)
+	hostPort := net.JoinHostPort(addr.String(), portString)
+	challenge.ValidationRecord[0].Port = portString
 	va.log.Notice(fmt.Sprintf("DVSNI [%s] Attempting to validate DVSNI for %s %s",
 		identifier, hostPort, ZName))
-	conn, err := tls.DialWithDialer(&net.Dialer{Timeout: 5 * time.Second}, "tcp", hostPort, &tls.Config{
+	conn, err := tls.DialWithDialer(&net.Dialer{Timeout: validationTimeout}, "tcp", hostPort, &tls.Config{
 		ServerName:         ZName,
 		InsecureSkipVerify: true,
 	})
@@ -359,7 +493,7 @@ func parseHTTPConnError(err error) core.ProblemType {
 	return core.ConnectionProblem
 }
 
-func (va ValidationAuthorityImpl) validateDNS(identifier core.AcmeIdentifier, input core.Challenge, accountKey jose.JsonWebKey) (core.Challenge, error) {
+func (va *ValidationAuthorityImpl) validateDNS(identifier core.AcmeIdentifier, input core.Challenge) (core.Challenge, error) {
 	challenge := input
 
 	if identifier.Type != core.IdentifierDNS {
@@ -379,7 +513,7 @@ func (va ValidationAuthorityImpl) validateDNS(identifier core.AcmeIdentifier, in
 		"type":  core.ChallengeTypeDNS,
 		"token": challenge.Token,
 	}
-	err := verifyValidationJWS((*jose.JsonWebSignature)(challenge.Validation), &accountKey, target)
+	err := verifyValidationJWS(challenge.Validation, challenge.AccountKey, target)
 	if err != nil {
 		va.log.Debug(err.Error())
 		challenge.Status = core.StatusInvalid
@@ -397,7 +531,7 @@ func (va ValidationAuthorityImpl) validateDNS(identifier core.AcmeIdentifier, in
 
 	if err != nil {
 		challenge.Status = core.StatusInvalid
-		setChallengeErrorFromDNSError(err, &challenge)
+		challenge.Error = problemDetailsFromDNSError(err)
 		va.log.Debug(fmt.Sprintf("%s [%s] DNS failure: %s", challenge.Type, identifier, err))
 		return challenge, challenge.Error
 	}
@@ -419,10 +553,7 @@ func (va ValidationAuthorityImpl) validateDNS(identifier core.AcmeIdentifier, in
 
 // Overall validation process
 
-func (va ValidationAuthorityImpl) validate(authz core.Authorization, challengeIndex int, accountKey jose.JsonWebKey) {
-
-	// Select the first supported validation method
-	// XXX: Remove the "break" lines to process all supported validations
+func (va *ValidationAuthorityImpl) validate(authz core.Authorization, challengeIndex int) {
 	logEvent := verificationRequestEvent{
 		ID:          authz.ID,
 		Requester:   authz.RegistrationID,
@@ -440,20 +571,23 @@ func (va ValidationAuthorityImpl) validate(authz core.Authorization, challengeIn
 
 		switch authz.Challenges[challengeIndex].Type {
 		case core.ChallengeTypeSimpleHTTP:
-			authz.Challenges[challengeIndex], err = va.validateSimpleHTTP(authz.Identifier, authz.Challenges[challengeIndex], accountKey)
-			break
+			authz.Challenges[challengeIndex], err = va.validateSimpleHTTP(authz.Identifier, authz.Challenges[challengeIndex])
 		case core.ChallengeTypeDVSNI:
-			authz.Challenges[challengeIndex], err = va.validateDvsni(authz.Identifier, authz.Challenges[challengeIndex], accountKey)
-			break
+			authz.Challenges[challengeIndex], err = va.validateDvsni(authz.Identifier, authz.Challenges[challengeIndex])
 		case core.ChallengeTypeDNS:
-			authz.Challenges[challengeIndex], err = va.validateDNS(authz.Identifier, authz.Challenges[challengeIndex], accountKey)
-			break
+			authz.Challenges[challengeIndex], err = va.validateDNS(authz.Identifier, authz.Challenges[challengeIndex])
 		}
 
-		logEvent.Challenge = authz.Challenges[challengeIndex]
 		if err != nil {
 			logEvent.Error = err.Error()
+		} else if !authz.Challenges[challengeIndex].RecordsSane() {
+			chall := &authz.Challenges[challengeIndex]
+			chall.Status = core.StatusInvalid
+			chall.Error = &core.ProblemDetails{Type: core.ServerInternalProblem,
+				Detail: "Records for validation failed sanity check"}
+			logEvent.Error = chall.Error.Detail
 		}
+		logEvent.Challenge = authz.Challenges[challengeIndex]
 	}
 
 	// AUDIT[ Certificate Requests ] 11917fa4-10ef-4e0d-9105-bacbe7836a3c
@@ -465,8 +599,8 @@ func (va ValidationAuthorityImpl) validate(authz core.Authorization, challengeIn
 }
 
 // UpdateValidations runs the validate() method asynchronously using goroutines.
-func (va ValidationAuthorityImpl) UpdateValidations(authz core.Authorization, challengeIndex int, accountKey jose.JsonWebKey) error {
-	go va.validate(authz, challengeIndex, accountKey)
+func (va *ValidationAuthorityImpl) UpdateValidations(authz core.Authorization, challengeIndex int) error {
+	go va.validate(authz, challengeIndex)
 	return nil
 }
 

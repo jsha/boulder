@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/letsencrypt/boulder/Godeps/_workspace/src/github.com/cactus/go-statsd-client/statsd"
+	"github.com/letsencrypt/boulder/Godeps/_workspace/src/github.com/codegangsta/cli"
 	"github.com/letsencrypt/boulder/Godeps/_workspace/src/github.com/streadway/amqp"
 
 	"github.com/letsencrypt/boulder/cmd"
@@ -19,9 +20,10 @@ import (
 	"github.com/letsencrypt/boulder/wfe"
 )
 
-func setupWFE(c cmd.Config) (rpc.RegistrationAuthorityClient, rpc.StorageAuthorityClient, chan *amqp.Error) {
-	ch, err := cmd.AmqpChannel(c)
+func setupWFE(c cmd.Config, logger *blog.AuditLogger) (rpc.RegistrationAuthorityClient, rpc.StorageAuthorityClient, chan *amqp.Error) {
+	ch, err := rpc.AmqpChannel(c)
 	cmd.FailOnError(err, "Could not connect to AMQP")
+	logger.Info(" [!] Connected to AMQP")
 
 	closeChan := ch.NotifyClose(make(chan *amqp.Error, 1))
 
@@ -73,7 +75,20 @@ func HandlerTimer(handler http.Handler, stats statsd.Statter) http.Handler {
 }
 
 func main() {
-	app := cmd.NewAppShell("boulder-wfe")
+	app := cmd.NewAppShell("boulder-wfe", "Handles HTTP API requests")
+	addrFlag := cli.StringFlag{
+		Name:   "addr",
+		Value:  "",
+		Usage:  "if set, overrides the listenAddr setting in the WFE config",
+		EnvVar: "WFE_LISTEN_ADDR",
+	}
+	app.App.Flags = append(app.App.Flags, addrFlag)
+	app.Config = func(c *cli.Context, config cmd.Config) cmd.Config {
+		if c.GlobalString("addr") != "" {
+			config.WFE.ListenAddress = c.GlobalString("addr")
+		}
+		return config
+	}
 	app.Action = func(c cmd.Config) {
 		// Set up logging
 		stats, err := statsd.NewClient(c.Statsd.Server, c.Statsd.Prefix)
@@ -91,7 +106,7 @@ func main() {
 
 		wfe, err := wfe.NewWebFrontEndImpl()
 		cmd.FailOnError(err, "Unable to create WFE")
-		rac, sac, closeChan := setupWFE(c)
+		rac, sac, closeChan := setupWFE(c, auditlogger)
 		wfe.RA = &rac
 		wfe.SA = &sac
 		wfe.Stats = stats
@@ -117,12 +132,11 @@ func main() {
 			// with new RA and SA rpc clients.
 			for {
 				for err := range closeChan {
-					auditlogger.Warning(fmt.Sprintf("AMQP Channel closed, will reconnect in 5 seconds: [%s]", err))
+					auditlogger.Warning(fmt.Sprintf(" [!] AMQP Channel closed, will reconnect in 5 seconds: [%s]", err))
 					time.Sleep(time.Second * 5)
-					rac, sac, closeChan = setupWFE(c)
+					rac, sac, closeChan = setupWFE(c, auditlogger)
 					wfe.RA = &rac
 					wfe.SA = &sac
-					auditlogger.Warning("Reconnected to AMQP")
 				}
 			}
 		}()
@@ -135,6 +149,7 @@ func main() {
 		auditlogger.Info(app.VersionString())
 
 		// Add HandlerTimer to output resp time + success/failure stats to statsd
+
 		auditlogger.Info(fmt.Sprintf("Server running, listening on %s...\n", c.WFE.ListenAddress))
 		err = http.ListenAndServe(c.WFE.ListenAddress, HandlerTimer(h, stats))
 		cmd.FailOnError(err, "Error starting HTTP server")

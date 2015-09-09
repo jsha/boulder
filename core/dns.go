@@ -9,15 +9,45 @@ import (
 	"fmt"
 	"math/rand"
 	"net"
+	"strings"
 	"time"
 
 	"github.com/letsencrypt/boulder/Godeps/_workspace/src/github.com/miekg/dns"
 )
 
-// DNSResolverImpl represents a resolver system
+var (
+	// Private CIDRs to ignore per RFC1918 and RFC5735
+
+	// RFC1918
+	// 10.0.0.0/8
+	rfc1918_10 = net.IPNet{
+		IP:   []byte{10, 0, 0, 0},
+		Mask: []byte{255, 0, 0, 0},
+	}
+	// 172.16.0.0/12
+	rfc1918_172_16 = net.IPNet{
+		IP:   []byte{172, 16, 0, 0},
+		Mask: []byte{255, 240, 0, 0},
+	}
+	// 192.168.0.0/16
+	rfc1918_192_168 = net.IPNet{
+		IP:   []byte{192, 168, 0, 0},
+		Mask: []byte{255, 255, 0, 0},
+	}
+
+	// RFC5735
+	// 127.0.0.0/8
+	rfc5735_127 = net.IPNet{
+		IP:   []byte{127, 0, 0, 0},
+		Mask: []byte{255, 0, 0, 0},
+	}
+)
+
+// DNSResolverImpl represents a client that talks to an external resolver
 type DNSResolverImpl struct {
-	DNSClient *dns.Client
-	Servers   []string
+	DNSClient              *dns.Client
+	Servers                []string
+	allowLoopbackAddresses bool
 }
 
 // NewDNSResolverImpl constructs a new DNS resolver object that utilizes the
@@ -28,7 +58,20 @@ func NewDNSResolverImpl(dialTimeout time.Duration, servers []string) *DNSResolve
 	// Set timeout for underlying net.Conn
 	dnsClient.DialTimeout = dialTimeout
 
-	return &DNSResolverImpl{DNSClient: dnsClient, Servers: servers}
+	return &DNSResolverImpl{
+		DNSClient:              dnsClient,
+		Servers:                servers,
+		allowLoopbackAddresses: false,
+	}
+}
+
+// NewTestDNSResolverImpl constructs a new DNS resolver object that utilizes the
+// provided list of DNS servers for resolution and will allow loopback addresses.
+// This constructor should *only* be called from tests (unit or integration).
+func NewTestDNSResolverImpl(dialTimeout time.Duration, servers []string) *DNSResolverImpl {
+	resolver := NewDNSResolverImpl(dialTimeout, servers)
+	resolver.allowLoopbackAddresses = true
+	return resolver
 }
 
 // ExchangeOne performs a single DNS exchange with a randomly chosen server
@@ -69,9 +112,7 @@ func (dnsResolver *DNSResolverImpl) LookupTXT(hostname string) ([]string, time.D
 	for _, answer := range r.Answer {
 		if answer.Header().Rrtype == dns.TypeTXT {
 			if txtRec, ok := answer.(*dns.TXT); ok {
-				for _, field := range txtRec.Txt {
-					txt = append(txt, field)
-				}
+				txt = append(txt, strings.Join(txtRec.Txt, ""))
 			}
 		}
 	}
@@ -79,47 +120,34 @@ func (dnsResolver *DNSResolverImpl) LookupTXT(hostname string) ([]string, time.D
 	return txt, rtt, err
 }
 
-// LookupHost sends a DNS query to find all A/AAAA records associated with
-// the provided hostname.
-func (dnsResolver *DNSResolverImpl) LookupHost(hostname string) ([]net.IP, time.Duration, time.Duration, error) {
-	var addrs []net.IP
-	var answers []dns.RR
+func isPrivateV4(ip net.IP, allowLoopback bool) bool {
+	return rfc1918_10.Contains(ip) || rfc1918_172_16.Contains(ip) || rfc1918_192_168.Contains(ip) || (!allowLoopback && rfc5735_127.Contains(ip))
+}
 
-	r, aRtt, err := dnsResolver.ExchangeOne(hostname, dns.TypeA)
+// LookupHost sends a DNS query to find all A records associated with the provided
+// hostname. This method assumes that the external resolver will chase CNAME/DNAME
+// aliases and return relevant A records.
+func (dnsResolver *DNSResolverImpl) LookupHost(hostname string) ([]net.IP, time.Duration, error) {
+	var addrs []net.IP
+
+	r, rtt, err := dnsResolver.ExchangeOne(hostname, dns.TypeA)
 	if err != nil {
-		return addrs, 0, 0, err
+		return addrs, rtt, err
 	}
 	if r.Rcode != dns.RcodeSuccess {
 		err = fmt.Errorf("DNS failure: %d-%s for A query", r.Rcode, dns.RcodeToString[r.Rcode])
-		return nil, aRtt, 0, err
+		return nil, rtt, err
 	}
 
-	answers = append(answers, r.Answer...)
-
-	r, aaaaRtt, err := dnsResolver.ExchangeOne(hostname, dns.TypeAAAA)
-	if err != nil {
-		return addrs, aRtt, 0, err
-	}
-	if r.Rcode != dns.RcodeSuccess {
-		err = fmt.Errorf("DNS failure: %d-%s for AAAA query", r.Rcode, dns.RcodeToString[r.Rcode])
-		return nil, aRtt, aaaaRtt, err
-	}
-
-	answers = append(answers, r.Answer...)
-
-	for _, answer := range answers {
+	for _, answer := range r.Answer {
 		if answer.Header().Rrtype == dns.TypeA {
-			if a, ok := answer.(*dns.A); ok {
+			if a, ok := answer.(*dns.A); ok && a.A.To4() != nil && !isPrivateV4(a.A, dnsResolver.allowLoopbackAddresses) {
 				addrs = append(addrs, a.A)
-			}
-		} else if answer.Header().Rrtype == dns.TypeAAAA {
-			if aaaa, ok := answer.(*dns.AAAA); ok {
-				addrs = append(addrs, aaaa.AAAA)
 			}
 		}
 	}
 
-	return addrs, aRtt, aaaaRtt, nil
+	return addrs, rtt, nil
 }
 
 // LookupCNAME returns the target name if a CNAME record exists for

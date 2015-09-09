@@ -7,7 +7,7 @@ package core
 
 import (
 	"encoding/json"
-	"net/url"
+	"net"
 	"testing"
 
 	"github.com/letsencrypt/boulder/Godeps/_workspace/src/github.com/letsencrypt/go-jose"
@@ -23,16 +23,15 @@ func TestProblemDetails(t *testing.T) {
 }
 
 func TestRegistrationUpdate(t *testing.T) {
-	oldURL, _ := url.Parse("http://old.invalid")
-	newURL, _ := url.Parse("http://new.invalid")
-
+	oldURL, _ := ParseAcmeURL("http://old.invalid")
+	newURL, _ := ParseAcmeURL("http://new.invalid")
 	reg := Registration{
 		ID:        1,
-		Contact:   []AcmeURL{AcmeURL(*oldURL)},
+		Contact:   []*AcmeURL{oldURL},
 		Agreement: "",
 	}
 	update := Registration{
-		Contact:   []AcmeURL{AcmeURL(*newURL)},
+		Contact:   []*AcmeURL{newURL},
 		Agreement: "totally!",
 	}
 
@@ -41,10 +40,49 @@ func TestRegistrationUpdate(t *testing.T) {
 	test.Assert(t, reg.Agreement == update.Agreement, "Agreement was not updated")
 }
 
-func TestSanityCheck(t *testing.T) {
+func TestRecordSanityCheck(t *testing.T) {
+	rec := []ValidationRecord{
+		ValidationRecord{
+			URL:               "http://localhost/test",
+			Hostname:          "localhost",
+			Port:              "80",
+			AddressesResolved: []net.IP{net.IP{127, 0, 0, 1}},
+			AddressUsed:       net.IP{127, 0, 0, 1},
+		},
+	}
+
+	chall := Challenge{Type: ChallengeTypeSimpleHTTP, ValidationRecord: rec}
+	test.Assert(t, chall.RecordsSane(), "Record should be sane")
+	chall.ValidationRecord[0].URL = ""
+	test.Assert(t, !chall.RecordsSane(), "Record should not be sane")
+
+	chall = Challenge{Type: ChallengeTypeDVSNI, ValidationRecord: rec}
+	chall.ValidationRecord[0].URL = ""
+	test.Assert(t, chall.RecordsSane(), "Record should be sane")
+	chall.ValidationRecord[0].Hostname = ""
+	test.Assert(t, !chall.RecordsSane(), "Record should not be sane")
+
+	chall.ValidationRecord = append(chall.ValidationRecord, rec...)
+	test.Assert(t, !chall.RecordsSane(), "Record should not be sane")
+}
+
+func TestChallengeSanityCheck(t *testing.T) {
+	// Make a temporary account key
+	var accountKey *jose.JsonWebKey
+	err := json.Unmarshal([]byte(`{
+    "kty":"RSA",
+    "n":"yNWVhtYEKJR21y9xsHV-PD_bYwbXSeNuFal46xYxVfRL5mqha7vttvjB_vc7Xg2RvgCxHPCqoxgMPTzHrZT75LjCwIW2K_klBYN8oYvTwwmeSkAz6ut7ZxPv-nZaT5TJhGk0NT2kh_zSpdriEJ_3vW-mqxYbbBmpvHqsa1_zx9fSuHYctAZJWzxzUZXykbWMWQZpEiE0J4ajj51fInEzVn7VxV-mzfMyboQjujPh7aNJxAWSq4oQEJJDgWwSh9leyoJoPpONHxh5nEE5AjE01FkGICSxjpZsF-w8hOTI3XXohUdu29Se26k2B0PolDSuj0GIQU6-W9TdLXSjBb2SpQ",
+    "e":"AQAB"
+  }`), &accountKey)
+	test.AssertNotError(t, err, "Error unmarshaling JWK")
+
 	types := []string{ChallengeTypeSimpleHTTP, ChallengeTypeDVSNI, ChallengeTypeDNS}
 	for _, challengeType := range types {
-		chall := Challenge{Type: challengeType, Status: StatusInvalid}
+		chall := Challenge{
+			Type:       challengeType,
+			Status:     StatusInvalid,
+			AccountKey: accountKey,
+		}
 		test.Assert(t, !chall.IsSane(false), "IsSane should be false")
 		chall.Status = StatusPending
 		test.Assert(t, !chall.IsSane(false), "IsSane should be false")
@@ -55,14 +93,32 @@ func TestSanityCheck(t *testing.T) {
 		chall.Token = "evaGxfADs6pSRb2LAv9IZf17Dt3juxGJ+PCt92wr+o!"
 		test.Assert(t, !chall.IsSane(false), "IsSane should be false")
 		chall.Token = "KQqLsiS5j0CONR_eUXTUSUDNVaHODtc-0pD6ACif7U4"
+		test.Assert(t, chall.IsSane(false), "IsSane should be true")
 
 		// Post-completion tests differ by type
 		if challengeType == ChallengeTypeSimpleHTTP {
 			tls := true
 			chall.TLS = &tls
-			test.Assert(t, chall.IsSane(false), "IsSane should be true")
+			chall.ValidationRecord = []ValidationRecord{ValidationRecord{
+				URL:               "",
+				Hostname:          "localhost",
+				Port:              "80",
+				AddressesResolved: []net.IP{net.IP{127, 0, 0, 1}},
+				AddressUsed:       net.IP{127, 0, 0, 1},
+			}}
+			test.Assert(t, chall.IsSane(true), "IsSane should be true")
 		} else if challengeType == ChallengeTypeDVSNI || challengeType == ChallengeTypeDNS {
 			chall.Validation = new(jose.JsonWebSignature)
+			if challengeType == ChallengeTypeDVSNI {
+				chall.ValidationRecord = []ValidationRecord{ValidationRecord{
+					Hostname:          "localhost",
+					Port:              "80",
+					AddressesResolved: []net.IP{net.IP{127, 0, 0, 1}},
+					AddressUsed:       net.IP{127, 0, 0, 1},
+				}}
+			} else {
+				chall.ValidationRecord = []ValidationRecord{}
+			}
 			test.Assert(t, chall.IsSane(true), "IsSane should be true")
 		}
 	}

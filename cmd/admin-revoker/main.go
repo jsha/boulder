@@ -11,39 +11,20 @@ import (
 	"fmt"
 	"io/ioutil"
 	"os"
+	"os/user"
 	"sort"
 	"strconv"
 	"strings"
 
 	"github.com/letsencrypt/boulder/Godeps/_workspace/src/github.com/cactus/go-statsd-client/statsd"
 	"github.com/letsencrypt/boulder/Godeps/_workspace/src/github.com/codegangsta/cli"
-
-	// Load both drivers to allow configuring either
-	_ "github.com/letsencrypt/boulder/Godeps/_workspace/src/github.com/go-sql-driver/mysql"
-	_ "github.com/letsencrypt/boulder/Godeps/_workspace/src/github.com/mattn/go-sqlite3"
-
+	gorp "github.com/letsencrypt/boulder/Godeps/_workspace/src/gopkg.in/gorp.v1"
 	"github.com/letsencrypt/boulder/cmd"
 	"github.com/letsencrypt/boulder/core"
 	blog "github.com/letsencrypt/boulder/log"
 	"github.com/letsencrypt/boulder/rpc"
 	"github.com/letsencrypt/boulder/sa"
-
-	gorp "github.com/letsencrypt/boulder/Godeps/_workspace/src/gopkg.in/gorp.v1"
 )
-
-var reasons = map[int]string{
-	0: "unspecified",
-	1: "keyCompromise",
-	2: "cACompromise",
-	3: "affiliationChanged",
-	4: "superseded",
-	5: "cessationOfOperation",
-	6: "certificateHold",
-	// 7 is unused
-	8:  "removeFromCRL", // needed?
-	9:  "privilegeWithdrawn",
-	10: "aAcompromise",
-}
 
 func loadConfig(c *cli.Context) (config cmd.Config, err error) {
 	configFileName := c.GlobalString("config")
@@ -56,7 +37,7 @@ func loadConfig(c *cli.Context) (config cmd.Config, err error) {
 	return
 }
 
-func setupContext(context *cli.Context) (rpc.CertificateAuthorityClient, *blog.AuditLogger, *gorp.DbMap) {
+func setupContext(context *cli.Context) (rpc.RegistrationAuthorityClient, *blog.AuditLogger, *gorp.DbMap, rpc.StorageAuthorityClient) {
 	c, err := loadConfig(context)
 	cmd.FailOnError(err, "Failed to load Boulder configuration")
 
@@ -67,19 +48,25 @@ func setupContext(context *cli.Context) (rpc.CertificateAuthorityClient, *blog.A
 	cmd.FailOnError(err, "Could not connect to Syslog")
 	blog.SetAuditLogger(auditlogger)
 
-	ch, err := cmd.AmqpChannel(c)
+	ch, err := rpc.AmqpChannel(c)
 	cmd.FailOnError(err, "Could not connect to AMQP")
 
-	caRPC, err := rpc.NewAmqpRPCClient("revoker->CA", c.AMQP.CA.Server, ch)
+	raRPC, err := rpc.NewAmqpRPCClient("revoker->RA", c.AMQP.RA.Server, ch)
 	cmd.FailOnError(err, "Unable to create RPC client")
 
-	cac, err := rpc.NewCertificateAuthorityClient(caRPC)
+	rac, err := rpc.NewRegistrationAuthorityClient(raRPC)
 	cmd.FailOnError(err, "Unable to create CA client")
 
-	dbMap, err := sa.NewDbMap(c.Revoker.DBDriver, c.Revoker.DBConnect)
+	dbMap, err := sa.NewDbMap(c.Revoker.DBConnect)
 	cmd.FailOnError(err, "Couldn't setup database connection")
 
-	return cac, auditlogger, dbMap
+	saRPC, err := rpc.NewAmqpRPCClient("AdminRevoker->SA", c.AMQP.SA.Server, ch)
+	cmd.FailOnError(err, "Unable to create RPC client")
+
+	sac, err := rpc.NewStorageAuthorityClient(saRPC)
+	cmd.FailOnError(err, "Failed to create SA client")
+
+	return rac, auditlogger, dbMap, sac
 }
 
 func addDeniedNames(tx *gorp.Transaction, names []string) (err error) {
@@ -90,7 +77,7 @@ func addDeniedNames(tx *gorp.Transaction, names []string) (err error) {
 	return
 }
 
-func revokeBySerial(serial string, reasonCode int, deny bool, cac rpc.CertificateAuthorityClient, auditlogger *blog.AuditLogger, tx *gorp.Transaction) (err error) {
+func revokeBySerial(serial string, reasonCode core.RevocationCode, deny bool, rac rpc.RegistrationAuthorityClient, auditlogger *blog.AuditLogger, tx *gorp.Transaction) (err error) {
 	if reasonCode < 0 || reasonCode == 7 || reasonCode > 10 {
 		panic(fmt.Sprintf("Invalid reason code: %d", reasonCode))
 	}
@@ -104,34 +91,29 @@ func revokeBySerial(serial string, reasonCode int, deny bool, cac rpc.Certificat
 		err = fmt.Errorf("Cast failure")
 		return
 	}
+	cert, err := x509.ParseCertificate(certificate.DER)
+	if err != nil {
+		return
+	}
 	if deny {
 		// Retrieve DNS names associated with serial
-		var cert *x509.Certificate
-		cert, err = x509.ParseCertificate(certificate.DER)
-		if err != nil {
-			return
-		}
 		err = addDeniedNames(tx, append(cert.DNSNames, cert.Subject.CommonName))
 		if err != nil {
 			return
 		}
 	}
 
-	err = cac.RevokeCertificate(certificate.Serial, reasonCode)
+	u, err := user.Current()
+	err = rac.AdministrativelyRevokeCertificate(*cert, reasonCode, u.Username)
 	if err != nil {
 		return
 	}
 
-	auditlogger.Info(fmt.Sprintf("Revoked certificate %s with reason '%s'", serial, reasons[reasonCode]))
+	auditlogger.Info(fmt.Sprintf("Revoked certificate %s with reason '%s'", serial, core.RevocationReasons[reasonCode]))
 	return
 }
 
-func revokeByReg(regID int, reasonCode int, deny bool, cac rpc.CertificateAuthorityClient, auditlogger *blog.AuditLogger, tx *gorp.Transaction) (err error) {
-	_, err = tx.Get(core.Registration{}, regID)
-	if err != nil {
-		return
-	}
-
+func revokeByReg(regID int64, reasonCode core.RevocationCode, deny bool, rac rpc.RegistrationAuthorityClient, auditlogger *blog.AuditLogger, tx *gorp.Transaction) (err error) {
 	var certs []core.Certificate
 	_, err = tx.Select(&certs, "SELECT serial FROM certificates WHERE registrationID = :regID", map[string]interface{}{"regID": regID})
 	if err != nil {
@@ -139,7 +121,7 @@ func revokeByReg(regID int, reasonCode int, deny bool, cac rpc.CertificateAuthor
 	}
 
 	for _, cert := range certs {
-		err = revokeBySerial(cert.Serial, reasonCode, deny, cac, auditlogger, tx)
+		err = revokeBySerial(cert.Serial, reasonCode, deny, rac, auditlogger, tx)
 		if err != nil {
 			return
 		}
@@ -148,12 +130,13 @@ func revokeByReg(regID int, reasonCode int, deny bool, cac rpc.CertificateAuthor
 	return
 }
 
-var version = "0.0.1"
-
 func main() {
 	app := cli.NewApp()
 	app.Name = "admin-revoker"
-	app.Version = version
+	app.Usage = "Revokes issued certificates"
+	app.Version = cmd.Version()
+	app.Author = "Boulder contributors"
+	app.Email = "ca-dev@letsencrypt.org"
 
 	app.Flags = []cli.Flag{
 		cli.StringFlag{
@@ -178,7 +161,7 @@ func main() {
 				cmd.FailOnError(err, "Reason code argument must be a integer")
 				deny := c.GlobalBool("deny")
 
-				cac, auditlogger, dbMap := setupContext(c)
+				cac, auditlogger, dbMap, _ := setupContext(c)
 
 				tx, err := dbMap.Begin()
 				if err != nil {
@@ -186,7 +169,7 @@ func main() {
 				}
 				cmd.FailOnError(err, "Couldn't begin transaction")
 
-				err = revokeBySerial(serial, reasonCode, deny, cac, auditlogger, tx)
+				err = revokeBySerial(serial, core.RevocationCode(reasonCode), deny, cac, auditlogger, tx)
 				if err != nil {
 					tx.Rollback()
 				}
@@ -201,13 +184,13 @@ func main() {
 			Usage: "Revoke all certificates associated with a registration ID",
 			Action: func(c *cli.Context) {
 				// 1: registration ID,  2: reasonCode (3: deny flag)
-				regID, err := strconv.Atoi(c.Args().First())
+				regID, err := strconv.ParseInt(c.Args().First(), 10, 64)
 				cmd.FailOnError(err, "Registration ID argument must be a integer")
 				reasonCode, err := strconv.Atoi(c.Args().Get(1))
 				cmd.FailOnError(err, "Reason code argument must be a integer")
 				deny := c.GlobalBool("deny")
 
-				cac, auditlogger, dbMap := setupContext(c)
+				cac, auditlogger, dbMap, sac := setupContext(c)
 				// AUDIT[ Error Conditions ] 9cc4d537-8534-4970-8665-4b382abe82f3
 				defer auditlogger.AuditPanic()
 
@@ -217,7 +200,12 @@ func main() {
 				}
 				cmd.FailOnError(err, "Couldn't begin transaction")
 
-				err = revokeByReg(regID, reasonCode, deny, cac, auditlogger, tx)
+				_, err = sac.GetRegistration(regID)
+				if err != nil {
+					cmd.FailOnError(err, "Couldn't fetch registration")
+				}
+
+				err = revokeByReg(regID, core.RevocationCode(reasonCode), deny, cac, auditlogger, tx)
 				if err != nil {
 					tx.Rollback()
 				}
@@ -231,14 +219,14 @@ func main() {
 			Name:  "list-reasons",
 			Usage: "List all revocation reason codes",
 			Action: func(c *cli.Context) {
-				var codes []int
-				for k := range reasons {
+				var codes core.RevocationCodes
+				for k := range core.RevocationReasons {
 					codes = append(codes, k)
 				}
-				sort.Ints(codes)
+				sort.Sort(codes)
 				fmt.Printf("Revocation reason codes\n-----------------------\n\n")
 				for _, k := range codes {
-					fmt.Printf("%d: %s\n", k, reasons[k])
+					fmt.Printf("%d: %s\n", k, core.RevocationReasons[k])
 				}
 			},
 		},

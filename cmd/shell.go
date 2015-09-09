@@ -22,8 +22,6 @@
 package cmd
 
 import (
-	"crypto/tls"
-	"crypto/x509"
 	"encoding/json"
 	"encoding/pem"
 	"errors"
@@ -35,16 +33,14 @@ import (
 	_ "net/http/pprof"
 	"os"
 	"runtime"
-	"strings"
 	"time"
 
 	"github.com/letsencrypt/boulder/Godeps/_workspace/src/github.com/cactus/go-statsd-client/statsd"
+	cfsslConfig "github.com/letsencrypt/boulder/Godeps/_workspace/src/github.com/cloudflare/cfssl/config"
 	"github.com/letsencrypt/boulder/Godeps/_workspace/src/github.com/codegangsta/cli"
-	"github.com/letsencrypt/boulder/Godeps/_workspace/src/github.com/streadway/amqp"
-	"github.com/letsencrypt/boulder/ca"
+
 	"github.com/letsencrypt/boulder/core"
 	blog "github.com/letsencrypt/boulder/log"
-	"github.com/letsencrypt/boulder/rpc"
 )
 
 // Config stores configuration parameters that applications
@@ -60,13 +56,14 @@ type Config struct {
 
 	// General
 	AMQP struct {
-		Server string
-		RA     Queue
-		VA     Queue
-		SA     Queue
-		CA     Queue
-		OCSP   Queue
-		TLS    *TLSConfig
+		Server   string
+		Insecure bool
+		RA       Queue
+		VA       Queue
+		SA       Queue
+		CA       Queue
+		OCSP     Queue
+		TLS      *TLSConfig
 	}
 
 	WFE struct {
@@ -82,7 +79,7 @@ type Config struct {
 		DebugAddr string
 	}
 
-	CA ca.Config
+	CA CAConfig
 
 	Monolith struct {
 		// DebugAddr is the address to run the /debug handlers on.
@@ -95,7 +92,6 @@ type Config struct {
 	}
 
 	SA struct {
-		DBDriver  string
 		DBConnect string
 
 		// DebugAddr is the address to run the /debug handlers on.
@@ -105,13 +101,17 @@ type Config struct {
 	VA struct {
 		UserAgent string
 
+		PortConfig struct {
+			SimpleHTTPPort  int
+			SimpleHTTPSPort int
+			DVSNIPort       int
+		}
 		// DebugAddr is the address to run the /debug handlers on.
 		DebugAddr string
 	}
 
 	SQL struct {
-		CreateTables bool
-		SQLDebug     bool
+		SQLDebug bool
 	}
 
 	Statsd struct {
@@ -126,19 +126,27 @@ type Config struct {
 	}
 
 	Revoker struct {
-		DBDriver  string
 		DBConnect string
 	}
 
-	Mail struct {
+	Mailer struct {
 		Server   string
 		Port     string
 		Username string
 		Password string
+
+		DBConnect string
+
+		CertLimit int
+		NagTimes  []string
+		// Path to a text/template email template
+		EmailTemplate string
+
+		// DebugAddr is the address to run the /debug handlers on.
+		DebugAddr string
 	}
 
 	OCSPResponder struct {
-		DBDriver      string
 		DBConnect     string
 		Path          string
 		ListenAddress string
@@ -148,7 +156,6 @@ type Config struct {
 	}
 
 	OCSPUpdater struct {
-		DBDriver        string
 		DBConnect       string
 		MinTimeToExpiry string
 		ResponseLimit   int
@@ -157,17 +164,73 @@ type Config struct {
 		DebugAddr string
 	}
 
+	ExternalCertImporter struct {
+		CertsToImportCSVFilename   string
+		DomainsToImportCSVFilename string
+		CertsToRemoveCSVFilename   string
+		StatsdRate                 float32
+	}
+
+	PA PAConfig
+
 	Common struct {
 		BaseURL string
 		// Path to a PEM-encoded copy of the issuer certificate.
 		IssuerCert string
 		MaxKeySize int
 
-		DNSResolver string
-		DNSTimeout  string
+		DNSResolver               string
+		DNSTimeout                string
+		DNSAllowLoopbackAddresses bool
+	}
+
+	CertChecker struct {
+		Workers             int
+		ReportDirectoryPath string
+		DBConnect           string
 	}
 
 	SubscriberAgreementURL string
+}
+
+type CAConfig struct {
+	Profile      string
+	TestMode     bool
+	DBConnect    string
+	SerialPrefix int
+	Key          KeyConfig
+	// LifespanOCSP is how long OCSP responses are valid for; It should be longer
+	// than the minTimeToExpiry field for the OCSP Updater.
+	LifespanOCSP string
+	// How long issued certificates are valid for, should match expiry field
+	// in cfssl config.
+	Expiry string
+	// The maximum number of subjectAltNames in a single certificate
+	MaxNames int
+	CFSSL    cfsslConfig.Config
+
+	// DebugAddr is the address to run the /debug handlers on.
+	DebugAddr string
+}
+
+type PAConfig struct {
+	DBConnect              string
+	EnforcePolicyWhitelist bool
+}
+
+// KeyConfig should contain either a File path to a PEM-format private key,
+// or a PKCS11Config defining how to load a module for an HSM.
+type KeyConfig struct {
+	File   string
+	PKCS11 PKCS11Config
+}
+
+// PKCS11Config defines how to load a module for an HSM.
+type PKCS11Config struct {
+	Module string
+	Token  string
+	PIN    string
+	Label  string
 }
 
 // TLSConfig reprents certificates and a key for authenticated TLS.
@@ -189,12 +252,19 @@ type AppShell struct {
 	App    *cli.App
 }
 
+func Version() string {
+	return fmt.Sprintf("0.1.0 [%s]", core.GetBuildID())
+}
+
 // NewAppShell creates a basic AppShell object containing CLI metadata
-func NewAppShell(name string) (shell *AppShell) {
+func NewAppShell(name, usage string) (shell *AppShell) {
 	app := cli.NewApp()
 
 	app.Name = name
-	app.Version = fmt.Sprintf("0.1.0 [%s]", core.GetBuildID())
+	app.Usage = usage
+	app.Version = Version()
+	app.Author = "Boulder contributors"
+	app.Email = "ca-dev@letsencrypt.org"
 
 	app.Flags = []cli.Flag{
 		cli.StringFlag{
@@ -240,101 +310,11 @@ func (as *AppShell) VersionString() string {
 func FailOnError(err error, msg string) {
 	if err != nil {
 		// AUDIT[ Error Conditions ] 9cc4d537-8534-4970-8665-4b382abe82f3
-		fmt.Fprintf(os.Stderr, "%s: %s", msg, err)
+		logger := blog.GetAuditLogger()
+		logger.Err(fmt.Sprintf("%s: %s", msg, err))
+		fmt.Fprintf(os.Stderr, "%s: %s\n", msg, err)
 		os.Exit(1)
 	}
-}
-
-// AmqpChannel is the same as amqpConnect in boulder, but with even
-// more aggressive error dropping
-func AmqpChannel(conf Config) (*amqp.Channel, error) {
-	var conn *amqp.Connection
-	var err error
-
-	log := blog.GetAuditLogger()
-
-	if conf.AMQP.TLS == nil {
-		// Configuration did not specify TLS options, but Dial will
-		// use TLS anyway if the URL scheme is "amqps"
-		conn, err = amqp.Dial(conf.AMQP.Server)
-
-	} else {
-		// They provided TLS options, so let's load them.
-		log.Info("AMQPS: Loading TLS Options.")
-
-		if strings.HasPrefix(conf.AMQP.Server, "amqps") == false {
-			err = fmt.Errorf("AMQPS: TLS configuration provided, but not using an AMQPS URL")
-			return nil, err
-		}
-
-		cfg := new(tls.Config)
-
-		// If the configuration specified a certificate (or key), load them
-		if conf.AMQP.TLS.CertFile != nil || conf.AMQP.TLS.KeyFile != nil {
-			// But they have to give both.
-			if conf.AMQP.TLS.CertFile == nil || conf.AMQP.TLS.KeyFile == nil {
-				err = fmt.Errorf("AMQPS: You must set both of the configuration values AMQP.TLS.KeyFile and AMQP.TLS.CertFile.")
-				return nil, err
-			}
-
-			cert, err := tls.LoadX509KeyPair(*conf.AMQP.TLS.CertFile, *conf.AMQP.TLS.KeyFile)
-			if err != nil {
-				err = fmt.Errorf("AMQPS: Could not load Client Certificate or Key: %s", err)
-				return nil, err
-			}
-
-			log.Info("AMQPS: Configured client certificate for AMQPS.")
-			cfg.Certificates = append(cfg.Certificates, cert)
-		}
-
-		// If the configuration specified a CA certificate, make it the only
-		// available root.
-		if conf.AMQP.TLS.CACertFile != nil {
-			cfg.RootCAs = x509.NewCertPool()
-
-			ca, err := ioutil.ReadFile(*conf.AMQP.TLS.CACertFile)
-			if err != nil {
-				err = fmt.Errorf("AMQPS: Could not load CA Certificate: %s", err)
-				return nil, err
-			}
-			cfg.RootCAs.AppendCertsFromPEM(ca)
-			log.Info("AMQPS: Configured CA certificate for AMQPS.")
-		}
-
-		conn, err = amqp.DialTLS(conf.AMQP.Server, cfg)
-	}
-
-	if err != nil {
-		return nil, err
-	}
-
-	err = rpc.AMQPDeclareExchange(conn)
-	if err != nil {
-		return nil, err
-	}
-
-	return conn.Channel()
-}
-
-// RunForever starts the server and wait around
-func RunForever(server *rpc.AmqpRPCServer) {
-	forever := make(chan bool)
-	server.Start()
-	fmt.Fprintf(os.Stderr, "Server running...\n")
-	<-forever
-}
-
-// RunUntilSignaled starts the server and run until we get something on closeChan
-func RunUntilSignaled(logger *blog.AuditLogger, server *rpc.AmqpRPCServer, closeChan chan *amqp.Error) {
-	server.Start()
-	fmt.Fprintf(os.Stderr, "Server running...\n")
-
-	// Block until channel closes
-	err := <-closeChan
-
-	logger.Warning(fmt.Sprintf("AMQP Channel closed, will reconnect in 5 seconds: [%s]", err))
-	time.Sleep(time.Second * 5)
-	logger.Warning("Reconnecting to AMQP...")
 }
 
 // ProfileCmd runs forever, sending Go statistics to StatsD.

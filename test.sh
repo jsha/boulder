@@ -7,19 +7,7 @@ fi
 
 FAILURE=0
 
-TESTDIRS="analysis \
-          ca \
-          core \
-          log \
-          policy \
-          ra \
-          rpc \
-          sa \
-          test \
-          va \
-          wfe"
-          # cmd
-          # Godeps
+TESTPATHS=$(go list -f '{{ .ImportPath }}' ./...)
 
 # We need to know, for github-pr-status, what the triggering commit is.
 # Assume first it's the travis commit (for builds of master), unless we're
@@ -52,7 +40,7 @@ update_status() {
   fi
 }
 
-run() {
+function run() {
   echo "$@"
   "$@" 2>&1
   local status=$?
@@ -69,7 +57,7 @@ run() {
   return ${status}
 }
 
-run_and_comment() {
+function run_and_comment() {
   if [ "x${TRAVIS}" = "x" ] || [ "${TRAVIS_PULL_REQUEST}" == "false" ] || [ ! -f "${GITHUB_SECRET_FILE}" ] ; then
     run "$@"
   else
@@ -101,28 +89,34 @@ function build_letsencrypt() {
     die "unable to find a python2 or python2.7 binary in \$PATH"
   fi
 
-  echo "------------------------------------------------"
-  echo "--- Checking out letsencrypt client is slow. ---"
-  echo "--- Recommend setting \$LETSENCRYPT_PATH to  ---"
-  echo "--- client repo with initialized virtualenv  ---"
-  echo "------------------------------------------------"
   run git clone \
-    https://www.github.com/letsencrypt/lets-encrypt-preview.git \
+    https://www.github.com/letsencrypt/letsencrypt.git \
     $LETSENCRYPT_PATH || exit 1
 
   cd $LETSENCRYPT_PATH
 
-  run virtualenv --no-site-packages -p $PY ./venv && \
-    ./venv/bin/pip install -r requirements.txt -e acme -e . -e letsencrypt-apache -e letsencrypt-nginx || exit 1
+  run virtualenv --no-site-packages -p $PY ./venv
+  run ./venv/bin/pip install -r requirements.txt -e acme -e . -e letsencrypt-apache -e letsencrypt-nginx
 
   cd -
 }
 
 function run_unit_tests() {
   if [ "${TRAVIS}" == "true" ]; then
+
+    # The deps variable is the imports of the packages under test that
+    # are not stdlib packages. We can then install them with the race
+    # detector enabled to prevent our individual `go test` calls from
+    # building them multiple times.
+    all_shared_imports=$(go list -f '{{ join .Imports "\n" }}' $TESTPATHS | sort | uniq)
+    deps=$(go list -f '{{ if not .Standard }}{{ .ImportPath }}{{ end }}' ${all_shared_imports})
+    echo "go installing race detector enabled dependencies"
+    go install -v -race $deps
+
     # Run each test by itself for Travis, so we can get coverage
-    for dir in ${TESTDIRS}; do
-      run go test -race -covermode=count -coverprofile=${dir}.coverprofile ./${dir}/
+    for path in ${TESTPATHS}; do
+      dir=$(basename $path)
+      run go test -race -cover -coverprofile=${dir}.coverprofile ${path}
     done
 
     # Gather all the coverprofiles
@@ -184,13 +178,14 @@ check_gofmt() {
 run_and_comment check_gofmt
 end_context #test/gofmt
 
+if [ "${TRAVIS}" == "true" ]; then
+  ./test/create_db.sh || die "unable to create the boulder database with test/create_db.sh"
+fi
+
 #
 # Unit Tests. These do not receive a context or status updates,
 # as they are reflected in our eventual exit code.
 #
-
-# Ensure SQLite is installed so we don't recompile it each time
-go install ./Godeps/_workspace/src/github.com/mattn/go-sqlite3
 
 if  [ "${SKIP_UNIT_TESTS}" == "1" ]; then
   echo "Skipping unit tests."
@@ -222,6 +217,11 @@ update_status --state pending --description "Integration Tests in progress"
 
 if [ -z "$LETSENCRYPT_PATH" ]; then
   LETSENCRYPT_PATH=$(mktemp -d -t leXXXX)
+  echo "------------------------------------------------"
+  echo "--- Checking out letsencrypt client is slow. ---"
+  echo "--- Recommend setting \$LETSENCRYPT_PATH to  ---"
+  echo "--- client repo with initialized virtualenv  ---"
+  echo "------------------------------------------------"
   build_letsencrypt
 elif [ ! -d "${LETSENCRYPT_PATH}" ]; then
   build_letsencrypt
@@ -235,9 +235,9 @@ case $? in
   0) # Success
     update_status --state success
     ;;
-  1) # Python client failed, but Node client didn't, which does
-     # not constitute failure
+  1) # Python client failed
     update_status --state success --description "Python integration failed."
+    FAILURE=1
     ;;
   2) # Node client failed
     update_status --state failure --description "NodeJS integration failed."
