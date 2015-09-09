@@ -15,9 +15,10 @@ import (
 	"io/ioutil"
 	"time"
 
+	"github.com/letsencrypt/boulder/Godeps/_workspace/src/github.com/jmhodges/clock"
+	"github.com/letsencrypt/boulder/cmd"
 	"github.com/letsencrypt/boulder/core"
 	blog "github.com/letsencrypt/boulder/log"
-	"github.com/letsencrypt/boulder/policy"
 
 	cfsslConfig "github.com/letsencrypt/boulder/Godeps/_workspace/src/github.com/cloudflare/cfssl/config"
 	"github.com/letsencrypt/boulder/Godeps/_workspace/src/github.com/cloudflare/cfssl/crypto/pkcs11key"
@@ -26,41 +27,6 @@ import (
 	"github.com/letsencrypt/boulder/Godeps/_workspace/src/github.com/cloudflare/cfssl/signer"
 	"github.com/letsencrypt/boulder/Godeps/_workspace/src/github.com/cloudflare/cfssl/signer/local"
 )
-
-// Config defines the JSON configuration file schema
-type Config struct {
-	Profile      string
-	DBConnect    string
-	SerialPrefix int
-	Key          KeyConfig
-	// LifespanOCSP is how long OCSP responses are valid for; It should be longer
-	// than the minTimeToExpiry field for the OCSP Updater.
-	LifespanOCSP string
-	// How long issued certificates are valid for, should match expiry field
-	// in cfssl config.
-	Expiry string
-	// The maximum number of subjectAltNames in a single certificate
-	MaxNames int
-	CFSSL    cfsslConfig.Config
-
-	// DebugAddr is the address to run the /debug handlers on.
-	DebugAddr string
-}
-
-// KeyConfig should contain either a File path to a PEM-format private key,
-// or a PKCS11Config defining how to load a module for an HSM.
-type KeyConfig struct {
-	File   string
-	PKCS11 PKCS11Config
-}
-
-// PKCS11Config defines how to load a module for an HSM.
-type PKCS11Config struct {
-	Module string
-	Token  string
-	PIN    string
-	Label  string
-}
 
 // This map is used to detect algorithms in crypto/x509 that
 // are no longer considered sufficiently strong.
@@ -87,6 +53,7 @@ type CertificateAuthorityImpl struct {
 	SA             core.StorageAuthority
 	PA             core.PolicyAuthority
 	DB             core.CertificateAuthorityDatabase
+	Clk            clock.Clock // TODO(jmhodges): should be private, like log
 	log            *blog.AuditLogger
 	Prefix         int // Prepended to the serial number
 	ValidityPeriod time.Duration
@@ -101,7 +68,7 @@ type CertificateAuthorityImpl struct {
 // using CFSSL's authenticated signature scheme.  A CA created in this way
 // issues for a single profile on the remote signer, which is indicated
 // by name in this constructor.
-func NewCertificateAuthorityImpl(cadb core.CertificateAuthorityDatabase, config Config, issuerCert string) (*CertificateAuthorityImpl, error) {
+func NewCertificateAuthorityImpl(cadb core.CertificateAuthorityDatabase, config cmd.CAConfig, clk clock.Clock, issuerCert string) (*CertificateAuthorityImpl, error) {
 	var ca *CertificateAuthorityImpl
 	var err error
 	logger := blog.GetAuditLogger()
@@ -154,15 +121,13 @@ func NewCertificateAuthorityImpl(cadb core.CertificateAuthorityDatabase, config 
 		return nil, err
 	}
 
-	pa := policy.NewPolicyAuthorityImpl()
-
 	ca = &CertificateAuthorityImpl{
 		Signer:     signer,
 		OCSPSigner: ocspSigner,
 		profile:    config.Profile,
-		PA:         pa,
 		DB:         cadb,
 		Prefix:     config.SerialPrefix,
+		Clk:        clk,
 		log:        logger,
 		NotAfter:   issuer.NotAfter,
 	}
@@ -180,7 +145,7 @@ func NewCertificateAuthorityImpl(cadb core.CertificateAuthorityDatabase, config 
 	return ca, nil
 }
 
-func loadKey(keyConfig KeyConfig) (priv crypto.Signer, err error) {
+func loadKey(keyConfig cmd.KeyConfig) (priv crypto.Signer, err error) {
 	if keyConfig.File != "" {
 		var keyBytes []byte
 		keyBytes, err = ioutil.ReadFile(keyConfig.File)
@@ -250,7 +215,7 @@ func (ca *CertificateAuthorityImpl) RevokeCertificate(serial string, reasonCode 
 		Certificate: cert,
 		Status:      string(core.OCSPStatusRevoked),
 		Reason:      int(reasonCode),
-		RevokedAt:   time.Now(),
+		RevokedAt:   ca.Clk.Now(),
 	}
 	ocspResponse, err := ca.OCSPSigner.Sign(signRequest)
 	if err != nil {
@@ -330,7 +295,7 @@ func (ca *CertificateAuthorityImpl) IssueCertificate(csr x509.CertificateRequest
 		}
 	}
 
-	notAfter := time.Now().Add(ca.ValidityPeriod)
+	notAfter := ca.Clk.Now().Add(ca.ValidityPeriod)
 
 	if ca.NotAfter.Before(notAfter) {
 		// AUDIT[ Certificate Requests ] 11917fa4-10ef-4e0d-9105-bacbe7836a3c
@@ -408,8 +373,7 @@ func (ca *CertificateAuthorityImpl) IssueCertificate(csr x509.CertificateRequest
 	certDER := block.Bytes
 
 	cert := core.Certificate{
-		DER:    certDER,
-		Status: core.StatusValid,
+		DER: certDER,
 	}
 
 	// This is one last check for uncaught errors

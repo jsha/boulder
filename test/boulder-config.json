@@ -107,6 +107,10 @@
     }
   },
 
+  "pa": {
+    "dbConnect": "mysql+tcp://boulder@localhost:3306/boulder_policy_test"
+  },
+
   "ra": {
     "debugAddr": "localhost:8002"
   },
@@ -168,7 +172,8 @@
     "issuerCert": "test/test-ca.pem",
     "maxKeySize": 4096,
     "dnsResolver": "127.0.0.1:8053",
-    "dnsTimeout": "10s"
+    "dnsTimeout": "10s",
+    "dnsAllowLoopbackAddresses": true
   },
 
   "certChecker": {

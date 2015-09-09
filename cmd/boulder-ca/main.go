@@ -7,9 +7,11 @@ package main
 
 import (
 	"github.com/letsencrypt/boulder/Godeps/_workspace/src/github.com/cactus/go-statsd-client/statsd"
+	"github.com/letsencrypt/boulder/Godeps/_workspace/src/github.com/jmhodges/clock"
 	"github.com/letsencrypt/boulder/ca"
 	"github.com/letsencrypt/boulder/cmd"
 	blog "github.com/letsencrypt/boulder/log"
+	"github.com/letsencrypt/boulder/policy"
 	"github.com/letsencrypt/boulder/rpc"
 	"github.com/letsencrypt/boulder/sa"
 )
@@ -37,9 +39,15 @@ func main() {
 		cadb, err := ca.NewCertificateAuthorityDatabaseImpl(dbMap)
 		cmd.FailOnError(err, "Failed to create CA database")
 
-		cai, err := ca.NewCertificateAuthorityImpl(cadb, c.CA, c.Common.IssuerCert)
+		paDbMap, err := sa.NewDbMap(c.PA.DBConnect)
+		cmd.FailOnError(err, "Couldn't connect to policy database")
+		pa, err := policy.NewPolicyAuthorityImpl(paDbMap, c.PA.EnforcePolicyWhitelist)
+		cmd.FailOnError(err, "Couldn't create PA")
+
+		cai, err := ca.NewCertificateAuthorityImpl(cadb, c.CA, clock.Default(), c.Common.IssuerCert)
 		cmd.FailOnError(err, "Failed to create CA impl")
 		cai.MaxKeySize = c.Common.MaxKeySize
+		cai.PA = pa
 
 		go cmd.ProfileCmd("CA", stats)
 

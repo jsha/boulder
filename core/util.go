@@ -63,6 +63,9 @@ type UnauthorizedError string
 // NotFoundError indicates the destination was unknown. Whoa oh oh ohhh.
 type NotFoundError string
 
+// LengthRequiredError indicates a POST was sent with no Content-Length.
+type LengthRequiredError string
+
 // SyntaxError indicates the user improperly formatted their data.
 type SyntaxError string
 
@@ -80,6 +83,7 @@ func (e NotSupportedError) Error() string        { return string(e) }
 func (e MalformedRequestError) Error() string    { return string(e) }
 func (e UnauthorizedError) Error() string        { return string(e) }
 func (e NotFoundError) Error() string            { return string(e) }
+func (e LengthRequiredError) Error() string      { return string(e) }
 func (e SyntaxError) Error() string              { return string(e) }
 func (e SignatureValidationError) Error() string { return string(e) }
 func (e CertificateIssuanceError) Error() string { return string(e) }
@@ -182,12 +186,11 @@ func ParseAcmeURL(s string) (*AcmeURL, error) {
 	if err != nil {
 		return nil, err
 	}
-	au := AcmeURL(*u)
-	return &au, nil
+	return (*AcmeURL)(u), nil
 }
 
 func (u *AcmeURL) String() string {
-	uu := url.URL(*u)
+	uu := (*url.URL)(u)
 	return uu.String()
 }
 
@@ -202,8 +205,7 @@ func (u *AcmeURL) PathSegments() (segments []string) {
 
 // MarshalJSON encodes an AcmeURL for transfer
 func (u *AcmeURL) MarshalJSON() ([]byte, error) {
-	uu := url.URL(*u)
-	return json.Marshal(uu.String())
+	return json.Marshal(u.String())
 }
 
 // UnmarshalJSON decodes an AcmeURL from transfer

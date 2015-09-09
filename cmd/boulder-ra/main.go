@@ -9,7 +9,10 @@ import (
 	"time"
 
 	"github.com/letsencrypt/boulder/Godeps/_workspace/src/github.com/cactus/go-statsd-client/statsd"
+	"github.com/letsencrypt/boulder/Godeps/_workspace/src/github.com/jmhodges/clock"
 	"github.com/letsencrypt/boulder/core"
+	"github.com/letsencrypt/boulder/policy"
+	"github.com/letsencrypt/boulder/sa"
 
 	"github.com/letsencrypt/boulder/cmd"
 	blog "github.com/letsencrypt/boulder/log"
@@ -34,11 +37,21 @@ func main() {
 
 		go cmd.DebugServer(c.RA.DebugAddr)
 
-		rai := ra.NewRegistrationAuthorityImpl()
+		paDbMap, err := sa.NewDbMap(c.PA.DBConnect)
+		cmd.FailOnError(err, "Couldn't connect to policy database")
+		pa, err := policy.NewPolicyAuthorityImpl(paDbMap, c.PA.EnforcePolicyWhitelist)
+		cmd.FailOnError(err, "Couldn't create PA")
+
+		rai := ra.NewRegistrationAuthorityImpl(clock.Default(), auditlogger)
 		rai.MaxKeySize = c.Common.MaxKeySize
+		rai.PA = pa
 		raDNSTimeout, err := time.ParseDuration(c.Common.DNSTimeout)
 		cmd.FailOnError(err, "Couldn't parse RA DNS timeout")
-		rai.DNSResolver = core.NewDNSResolverImpl(raDNSTimeout, []string{c.Common.DNSResolver})
+		if !c.Common.DNSAllowLoopbackAddresses {
+			rai.DNSResolver = core.NewDNSResolverImpl(raDNSTimeout, []string{c.Common.DNSResolver})
+		} else {
+			rai.DNSResolver = core.NewTestDNSResolverImpl(raDNSTimeout, []string{c.Common.DNSResolver})
+		}
 
 		go cmd.ProfileCmd("RA", stats)
 

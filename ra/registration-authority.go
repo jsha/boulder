@@ -13,9 +13,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/letsencrypt/boulder/Godeps/_workspace/src/github.com/jmhodges/clock"
 	"github.com/letsencrypt/boulder/core"
 	blog "github.com/letsencrypt/boulder/log"
-	"github.com/letsencrypt/boulder/policy"
 )
 
 // RegistrationAuthorityImpl defines an RA.
@@ -28,18 +28,15 @@ type RegistrationAuthorityImpl struct {
 	SA          core.StorageAuthority
 	PA          core.PolicyAuthority
 	DNSResolver core.DNSResolver
+	clk         clock.Clock
 	log         *blog.AuditLogger
 
-	MaxKeySize     int
+	MaxKeySize int
 }
 
 // NewRegistrationAuthorityImpl constructs a new RA object.
-func NewRegistrationAuthorityImpl() RegistrationAuthorityImpl {
-	logger := blog.GetAuditLogger()
-	logger.Notice("Registration Authority Starting")
-
-	ra := RegistrationAuthorityImpl{log: logger}
-	ra.PA = policy.NewPolicyAuthorityImpl()
+func NewRegistrationAuthorityImpl(clk clock.Clock, logger *blog.AuditLogger) RegistrationAuthorityImpl {
+	ra := RegistrationAuthorityImpl{clk: clk, log: logger}
 	return ra
 }
 
@@ -201,7 +198,7 @@ func (ra *RegistrationAuthorityImpl) NewCertificate(req core.CertificateRequest,
 		ID:            core.NewToken(),
 		Requester:     regID,
 		RequestMethod: "online",
-		RequestTime:   time.Now(),
+		RequestTime:   ra.clk.Now(),
 	}
 
 	// No matter what, log the request
@@ -262,7 +259,7 @@ func (ra *RegistrationAuthorityImpl) NewCertificate(req core.CertificateRequest,
 	}
 
 	// Check that each requested name has a valid authorization
-	now := time.Now()
+	now := ra.clk.Now()
 	earliestExpiry := time.Date(2100, 01, 01, 0, 0, 0, 0, time.UTC)
 	for _, name := range names {
 		authz, err := ra.SA.GetLatestValidAuthorization(registration.ID, core.AcmeIdentifier{Type: core.IdentifierDNS, Value: name})
@@ -310,7 +307,7 @@ func (ra *RegistrationAuthorityImpl) NewCertificate(req core.CertificateRequest,
 	logEvent.CommonName = parsedCertificate.Subject.CommonName
 	logEvent.NotBefore = parsedCertificate.NotBefore
 	logEvent.NotAfter = parsedCertificate.NotAfter
-	logEvent.ResponseTime = time.Now()
+	logEvent.ResponseTime = ra.clk.Now()
 
 	logEventResult = "successful"
 	return cert, nil
@@ -364,8 +361,8 @@ func (ra *RegistrationAuthorityImpl) UpdateChallenge(authz core.Authorization, c
 	// Copy information over that the client is allowed to supply
 	merged := current.MergeResponse(update)
 
-/// XXX TODO: reject if challenge in progress, don't trigger multiple
-//validations
+	/// XXX TODO: reject if challenge in progress, don't trigger multiple
+	//validations
 	// Store the updated version
 	err = ra.SA.UpdateChallenge(merged)
 	if err != nil {
@@ -382,8 +379,19 @@ func (ra *RegistrationAuthorityImpl) UpdateChallenge(authz core.Authorization, c
 	return merged, nil
 }
 
-// RevokeCertificate terminates trust in the certificate provided.
-func (ra *RegistrationAuthorityImpl) RevokeCertificate(cert x509.Certificate, revocationCode core.RevocationCode, regID *int64) (err error) {
+func revokeEvent(state, serial, cn string, names []string, revocationCode core.RevocationCode) string {
+	return fmt.Sprintf(
+		"Revocation - State: %s, Serial: %s, CN: %s, DNS Names: %s, Reason: %s",
+		state,
+		serial,
+		cn,
+		names,
+		core.RevocationReasons[revocationCode],
+	)
+}
+
+// RevokeCertificateWithReg terminates trust in the certificate provided.
+func (ra *RegistrationAuthorityImpl) RevokeCertificateWithReg(cert x509.Certificate, revocationCode core.RevocationCode, regID int64) (err error) {
 	serialString := core.SerialToString(cert.SerialNumber)
 	err = ra.CA.RevokeCertificate(serialString, revocationCode)
 
@@ -393,32 +401,57 @@ func (ra *RegistrationAuthorityImpl) RevokeCertificate(cert x509.Certificate, re
 		// Needed:
 		//   Serial
 		//   CN
+		//   DNS names
 		//   Revocation reason
+		//   Registration ID of requester
 		//   Error (if there was one)
-		revMsg := fmt.Sprintf(
-			"Revocation - State: %s, Serial: %s, CN: %s, DNS Names: %s, Reason: %s",
-			state,
-			serialString,
-			cert.Subject.CommonName,
-			cert.DNSNames,
-			core.RevocationReasons[revocationCode],
-		)
-		// Check regID is set, if not revocation came from the admin-revoker tool
-		if regID != nil {
-			revMsg = fmt.Sprintf("%s, Requested by registration ID: %d", revMsg, *regID)
-		} else {
-			revMsg = fmt.Sprintf("%s, Revoked using admin tool", revMsg)
-		}
-		ra.log.Audit(revMsg)
+		ra.log.Audit(fmt.Sprintf(
+			"%s, Request by registration ID: %d",
+			revokeEvent(state, serialString, cert.Subject.CommonName, cert.DNSNames, revocationCode),
+			regID,
+		))
 	}()
 
 	if err != nil {
 		state = fmt.Sprintf("Failure -- %s", err)
 		return err
 	}
-	state = "Success"
 
-	return err
+	state = "Success"
+	return nil
+}
+
+// AdministrativelyRevokeCertificate terminates trust in the certificate provided and
+// does not require the registration ID of the requester since this method is only
+// called from the admin-revoker tool.
+func (ra *RegistrationAuthorityImpl) AdministrativelyRevokeCertificate(cert x509.Certificate, revocationCode core.RevocationCode, user string) error {
+	serialString := core.SerialToString(cert.SerialNumber)
+	err := ra.CA.RevokeCertificate(serialString, revocationCode)
+
+	state := "Failure"
+	defer func() {
+		// AUDIT[ Revocation Requests ] 4e85d791-09c0-4ab3-a837-d3d67e945134
+		// Needed:
+		//   Serial
+		//   CN
+		//   DNS names
+		//   Revocation reason
+		//   Name of admin-revoker user
+		//   Error (if there was one)
+		ra.log.Audit(fmt.Sprintf(
+			"%s, admin-revoker user: %s",
+			revokeEvent(state, serialString, cert.Subject.CommonName, cert.DNSNames, revocationCode),
+			user,
+		))
+	}()
+
+	if err != nil {
+		state = fmt.Sprintf("Failure -- %s", err)
+		return err
+	}
+
+	state = "Success"
+	return nil
 }
 
 // OnValidationUpdate is called when a given Authorization is updated by the VA.
@@ -450,7 +483,7 @@ func (ra *RegistrationAuthorityImpl) OnValidationUpdate(authz core.Authorization
 		authz.Status = core.StatusInvalid
 	} else {
 		// TODO: Enable configuration of expiry time
-		exp := time.Now().Add(365 * 24 * time.Hour)
+		exp := ra.clk.Now().Add(365 * 24 * time.Hour)
 		authz.Expires = &exp
 	}
 

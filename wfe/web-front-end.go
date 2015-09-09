@@ -88,8 +88,10 @@ func statusCodeFromError(err interface{}) int {
 		return http.StatusForbidden
 	case core.NotFoundError:
 		return http.StatusNotFound
+	case core.LengthRequiredError:
+		return http.StatusLengthRequired
 	case core.SignatureValidationError:
-		return http.StatusPreconditionFailed
+		return http.StatusBadRequest
 	case core.InternalServerError:
 		return http.StatusInternalServerError
 	default:
@@ -283,6 +285,12 @@ func (wfe *WebFrontEndImpl) verifyPOST(request *http.Request, regCheck bool, res
 	var err error
 	var reg core.Registration
 
+	if _, ok := request.Header["Content-Length"]; !ok {
+		err = core.LengthRequiredError("Content-Length header is required for POST.")
+		wfe.log.Debug(err.Error())
+		return nil, nil, reg, err
+	}
+
 	// Read body
 	if request.Body == nil {
 		err = core.MalformedRequestError("No body on POST")
@@ -393,6 +401,8 @@ func (wfe *WebFrontEndImpl) sendError(response http.ResponseWriter, msg string, 
 	case http.StatusNotFound:
 		fallthrough
 	case http.StatusBadRequest:
+		fallthrough
+	case http.StatusLengthRequired:
 		problem.Type = core.MalformedProblem
 	default: // Either http.StatusInternalServerError or an unexpected code
 		problem.Type = core.ServerInternalProblem
@@ -434,7 +444,7 @@ func (wfe *WebFrontEndImpl) NewRegistration(response http.ResponseWriter, reques
 	body, key, _, err := wfe.verifyPOST(request, false, core.ResourceNewReg)
 	if err != nil {
 		logEvent.Error = err.Error()
-		wfe.sendError(response, malformedJWS, err, http.StatusBadRequest)
+		wfe.sendError(response, malformedJWS, err, statusCodeFromError(err))
 		return
 	}
 
@@ -503,7 +513,7 @@ func (wfe *WebFrontEndImpl) NewAuthorization(response http.ResponseWriter, reque
 	if err != nil {
 		logEvent.Error = err.Error()
 		respMsg := malformedJWS
-		respCode := http.StatusBadRequest
+		respCode := statusCodeFromError(err)
 		if err == sql.ErrNoRows {
 			respMsg = unknownKey
 			respCode = http.StatusForbidden
@@ -573,7 +583,7 @@ func (wfe *WebFrontEndImpl) RevokeCertificate(response http.ResponseWriter, requ
 	body, requestKey, registration, err := wfe.verifyPOST(request, false, core.ResourceRevokeCert)
 	if err != nil {
 		logEvent.Error = err.Error()
-		wfe.sendError(response, malformedJWS, err, http.StatusBadRequest)
+		wfe.sendError(response, malformedJWS, err, statusCodeFromError(err))
 		return
 	}
 	logEvent.Requester = registration.ID
@@ -643,7 +653,7 @@ func (wfe *WebFrontEndImpl) RevokeCertificate(response http.ResponseWriter, requ
 	}
 
 	// Use revocation code 0, meaning "unspecified"
-	err = wfe.RA.RevokeCertificate(*parsedCertificate, 0, &registration.ID)
+	err = wfe.RA.RevokeCertificateWithReg(*parsedCertificate, 0, registration.ID)
 	if err != nil {
 		logEvent.Error = err.Error()
 		wfe.sendError(response, "Failed to revoke certificate", err, statusCodeFromError(err))
@@ -678,7 +688,7 @@ func (wfe *WebFrontEndImpl) NewCertificate(response http.ResponseWriter, request
 	if err != nil {
 		logEvent.Error = err.Error()
 		respMsg := malformedJWS
-		respCode := http.StatusBadRequest
+		respCode := statusCodeFromError(err)
 		if err == sql.ErrNoRows {
 			respMsg = unknownKey
 			respCode = http.StatusForbidden
@@ -801,11 +811,11 @@ func (wfe *WebFrontEndImpl) Challenge(response http.ResponseWriter, request *htt
 }
 
 func (wfe *WebFrontEndImpl) getChallenge(
-		response http.ResponseWriter,
-		request *http.Request,
-		authz core.Authorization,
-		challenge core.Challenge,
-		logEvent *requestEvent) {
+	response http.ResponseWriter,
+	request *http.Request,
+	authz core.Authorization,
+	challenge core.Challenge,
+	logEvent *requestEvent) {
 	jsonReply, err := json.Marshal(challenge)
 	if err != nil {
 		logEvent.Error = err.Error()
@@ -828,11 +838,11 @@ func (wfe *WebFrontEndImpl) getChallenge(
 }
 
 func (wfe *WebFrontEndImpl) postChallenge(
-		response http.ResponseWriter,
-		request *http.Request,
-		authz core.Authorization,
-		currentChallenge core.Challenge,
-		logEvent *requestEvent) {
+	response http.ResponseWriter,
+	request *http.Request,
+	authz core.Authorization,
+	currentChallenge core.Challenge,
+	logEvent *requestEvent) {
 	body, _, currReg, err := wfe.verifyPOST(request, true, core.ResourceChallenge)
 	if err != nil {
 		logEvent.Error = err.Error()
@@ -910,7 +920,7 @@ func (wfe *WebFrontEndImpl) Registration(response http.ResponseWriter, request *
 	if err != nil {
 		logEvent.Error = err.Error()
 		respMsg := malformedJWS
-		respCode := http.StatusBadRequest
+		respCode := statusCodeFromError(err)
 		if err == sql.ErrNoRows {
 			respMsg = unknownKey
 			respCode = http.StatusForbidden

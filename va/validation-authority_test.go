@@ -817,7 +817,7 @@ func TestDNSValidationServFail(t *testing.T) {
 
 func TestDNSValidationNoServer(t *testing.T) {
 	va := NewValidationAuthorityImpl(&PortConfig{})
-	va.DNSResolver = core.NewDNSResolverImpl(time.Second*5, []string{})
+	va.DNSResolver = core.NewTestDNSResolverImpl(time.Second*5, []string{})
 	mockRA := &MockRegistrationAuthority{}
 	va.RA = mockRA
 
@@ -914,7 +914,11 @@ func (ra *MockRegistrationAuthority) UpdateAuthorization(authz core.Authorizatio
 	return authz, nil
 }
 
-func (ra *MockRegistrationAuthority) RevokeCertificate(cert x509.Certificate, reason core.RevocationCode, reg *int64) error {
+func (ra *MockRegistrationAuthority) RevokeCertificateWithReg(cert x509.Certificate, reason core.RevocationCode, reg int64) error {
+	return nil
+}
+
+func (ra *MockRegistrationAuthority) AdministrativelyRevokeCertificate(cert x509.Certificate, reason core.RevocationCode, user string) error {
 	return nil
 }
 
