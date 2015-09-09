@@ -775,6 +775,9 @@ func (wfe *WebFrontEndImpl) Challenge(
 		wfe.sendError(response, "No such registration", request.URL.Path, http.StatusNotFound)
 	}
 
+	// Challenge URIs are of the form /acme/challenge/<auth id>/<challenge id>.
+	// Here we parse out the id components. TODO: Use a better tool to parse out
+	// URL structure: https://github.com/letsencrypt/boulder/issues/437
 	slug := strings.Split(request.URL.Path[len(ChallengePath):], "/")
 	if len(slug) != 2 {
 		notFound()
