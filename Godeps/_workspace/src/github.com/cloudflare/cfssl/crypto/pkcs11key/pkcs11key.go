@@ -171,9 +171,8 @@ func (ps *PKCS11Key) openSession() (session pkcs11.SessionHandle, err error) {
 	}
 
 	slotID := uint(ps.slotID)
-	fmt.Printf("AS %#v %#v\n", slotID, slots)
 	// Look up slot by id
-	tokenInfo, err := ps.module.GetTokenInfo(uint(slotID))
+	tokenInfo, err := ps.module.GetTokenInfo(slotID)
 	if err != nil {
 		return
 	}

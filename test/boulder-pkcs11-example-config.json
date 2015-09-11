@@ -53,9 +53,8 @@
       "PKCS11": {
         "_comment": "On OS X, the module will likely be /Library/OpenSC/lib/opensc-pkcs11.so",
         "Module": "/usr/lib/x86_64-linux-gnu/opensc-pkcs11.so",
-        "TokenLabel": "Yubico Yubikey NEO OTP+CCID 00 00",
-        "PrivateKeyLabel": "SIGN key",
-        "SlotID": 1,
+        "Token": "Yubico Yubikey NEO OTP+CCID 00 00",
+        "Label": "SIGN key",
         "PIN": "1234"
       }
     },
