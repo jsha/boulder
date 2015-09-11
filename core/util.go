@@ -27,7 +27,6 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/cloudflare/cfssl/helpers"
 	jose "github.com/letsencrypt/boulder/Godeps/_workspace/src/github.com/letsencrypt/go-jose"
 	blog "github.com/letsencrypt/boulder/log"
 )
@@ -351,17 +350,7 @@ func UniqueNames(names []string) (unique []string) {
 	return
 }
 
-// LoadCert loads a PEM certificate specified by filename or returns a error
-func LoadCert(filename string) (issuerCert *x509.Certificate, err error) {
-	issuerCertPEM, err := ioutil.ReadFile(filename)
-	if err != nil {
-		return
-	}
-	issuerCert, err = helpers.ParseCertificatePEM(issuerCertPEM)
-	return
-}
-
-// Loads a PEM bundle of certificates from disk
+// LoadCertBundle loads a PEM bundle of certificates from disk
 func LoadCertBundle(filename string) ([]*x509.Certificate, error) {
 	bundleBytes, err := ioutil.ReadFile(filename)
 	if err != nil {
@@ -390,4 +379,18 @@ func LoadCertBundle(filename string) ([]*x509.Certificate, error) {
 	}
 
 	return bundle, nil
+}
+
+// LoadCert loads a PEM certificate specified by filename or returns a error
+func LoadCert(filename string) (cert *x509.Certificate, err error) {
+	certPEM, err := ioutil.ReadFile(filename)
+	if err != nil {
+		return
+	}
+	block, _ := pem.Decode(certPEM)
+	if block == nil {
+		return nil, fmt.Errorf("No data in cert PEM file %s", filename)
+	}
+	cert, err = x509.ParseCertificate(block.Bytes)
+	return
 }

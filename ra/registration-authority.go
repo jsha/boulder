@@ -10,7 +10,8 @@ import (
 	"errors"
 	"fmt"
 	"net/mail"
-	"strconv"
+	"reflect"
+	"sort"
 	"strings"
 	"time"
 
@@ -31,9 +32,6 @@ type RegistrationAuthorityImpl struct {
 	DNSResolver core.DNSResolver
 	clk         clock.Clock
 	log         *blog.AuditLogger
-
-	AuthzBase  string
-	MaxKeySize int
 }
 
 // NewRegistrationAuthorityImpl constructs a new RA object.
@@ -96,7 +94,7 @@ type certificateRequestEvent struct {
 
 // NewRegistration constructs a new Registration from a request.
 func (ra *RegistrationAuthorityImpl) NewRegistration(init core.Registration) (reg core.Registration, err error) {
-	if err = core.GoodKey(init.Key.Key, ra.MaxKeySize); err != nil {
+	if err = core.GoodKey(init.Key.Key); err != nil {
 		return core.Registration{}, core.MalformedRequestError(fmt.Sprintf("Invalid public key: %s", err.Error()))
 	}
 	reg = core.Registration{
@@ -151,6 +149,11 @@ func (ra *RegistrationAuthorityImpl) NewAuthorization(request core.Authorization
 	// Create validations, but we have to update them with URIs later
 	challenges, combinations := ra.PA.ChallengesFor(identifier)
 
+	for i, _ := range challenges {
+		// Add the account key used to generate the challenge
+		challenges[i].AccountKey = &reg.Key
+	}
+
 	// Partially-filled object
 	authz = core.Authorization{
 		Identifier:     identifier,
@@ -166,34 +169,103 @@ func (ra *RegistrationAuthorityImpl) NewAuthorization(request core.Authorization
 		// InternalServerError since the user-data was validated before being
 		// passed to the SA.
 		err = core.InternalServerError(fmt.Sprintf("Invalid authorization request: %s", err))
-		return authz, err
+		return core.Authorization{}, err
 	}
 
-	// Construct all the challenge URIs
-	for i := range authz.Challenges {
-		// Ignoring these errors because we construct the URLs to be correct
-		challengeURI, _ := core.ParseAcmeURL(ra.AuthzBase + authz.ID + "?challenge=" + strconv.Itoa(i))
-		authz.Challenges[i].URI = challengeURI
-
-		// Add the account key used to generate the challenge
-		authz.Challenges[i].AccountKey = &reg.Key
-
-		if !authz.Challenges[i].IsSane(false) {
+	// Check each challenge for sanity.
+	for _, challenge := range authz.Challenges {
+		if !challenge.IsSane(false) {
 			// InternalServerError because we generated these challenges, they should
 			// be OK.
-			err = core.InternalServerError(fmt.Sprintf("Challenge didn't pass sanity check: %+v", authz.Challenges[i]))
-			return authz, err
+			err = core.InternalServerError(fmt.Sprintf("Challenge didn't pass sanity check: %+v", challenge))
+			return core.Authorization{}, err
 		}
 	}
 
-	// Store the authorization object, then return it
-	err = ra.SA.UpdatePendingAuthorization(authz)
-	if err != nil {
-		// InternalServerError because we created the authorization just above,
-		// and adding Sane challenges should not break it.
-		err = core.InternalServerError(err.Error())
-	}
 	return authz, err
+}
+
+// MatchesCSR tests the contents of a generated certificate to make sure
+// that the PublicKey, CommonName, and DNSNames match those provided in
+// the CSR that was used to generate the certificate. It also checks the
+// following fields for:
+//		* notAfter is after earliestExpiry
+//		* notBefore is not more than 24 hours ago
+//		* BasicConstraintsValid is true
+//		* IsCA is false
+//		* ExtKeyUsage only contains ExtKeyUsageServerAuth & ExtKeyUsageClientAuth
+//		* Subject only contains CommonName & Names
+func (ra *RegistrationAuthorityImpl) MatchesCSR(
+	cert core.Certificate,
+	csr *x509.CertificateRequest,
+	earliestExpiry time.Time) (err error) {
+	parsedCertificate, err := x509.ParseCertificate([]byte(cert.DER))
+	if err != nil {
+		return
+	}
+
+	// Check issued certificate matches what was expected from the CSR
+	hostNames := make([]string, len(csr.DNSNames))
+	copy(hostNames, csr.DNSNames)
+	if len(csr.Subject.CommonName) > 0 {
+		hostNames = append(hostNames, csr.Subject.CommonName)
+	}
+	hostNames = core.UniqueNames(hostNames)
+
+	if !core.KeyDigestEquals(parsedCertificate.PublicKey, csr.PublicKey) {
+		err = core.InternalServerError("Generated certificate public key doesn't match CSR public key")
+		return
+	}
+	if len(csr.Subject.CommonName) > 0 && parsedCertificate.Subject.CommonName != csr.Subject.CommonName {
+		err = core.InternalServerError("Generated certificate CommonName doesn't match CSR CommonName")
+		return
+	}
+	// Sort both slices of names before comparison.
+	parsedNames := parsedCertificate.DNSNames
+	sort.Strings(parsedNames)
+	sort.Strings(hostNames)
+	if !reflect.DeepEqual(parsedNames, hostNames) {
+		err = core.InternalServerError("Generated certificate DNSNames don't match CSR DNSNames")
+		return
+	}
+	if !reflect.DeepEqual(parsedCertificate.IPAddresses, csr.IPAddresses) {
+		err = core.InternalServerError("Generated certificate IPAddresses don't match CSR IPAddresses")
+		return
+	}
+	if !reflect.DeepEqual(parsedCertificate.EmailAddresses, csr.EmailAddresses) {
+		err = core.InternalServerError("Generated certificate EmailAddresses don't match CSR EmailAddresses")
+		return
+	}
+	if len(parsedCertificate.Subject.Country) > 0 || len(parsedCertificate.Subject.Organization) > 0 ||
+		len(parsedCertificate.Subject.OrganizationalUnit) > 0 || len(parsedCertificate.Subject.Locality) > 0 ||
+		len(parsedCertificate.Subject.Province) > 0 || len(parsedCertificate.Subject.StreetAddress) > 0 ||
+		len(parsedCertificate.Subject.PostalCode) > 0 || len(parsedCertificate.Subject.SerialNumber) > 0 {
+		err = core.InternalServerError("Generated certificate Subject contains fields other than CommonName or Names")
+		return
+	}
+	if parsedCertificate.NotAfter.After(earliestExpiry) {
+		err = core.InternalServerError("Generated certificate expires before earliest expiration")
+		return
+	}
+	now := ra.clk.Now()
+	if now.Sub(parsedCertificate.NotBefore) > time.Hour*24 {
+		err = core.InternalServerError(fmt.Sprintf("Generated certificate is back dated %s", now.Sub(parsedCertificate.NotBefore)))
+		return
+	}
+	if !parsedCertificate.BasicConstraintsValid {
+		err = core.InternalServerError("Generated certificate doesn't have basic constraints set")
+		return
+	}
+	if parsedCertificate.IsCA {
+		err = core.InternalServerError("Generated certificate can sign other certificates")
+		return
+	}
+	if !reflect.DeepEqual(parsedCertificate.ExtKeyUsage, []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth, x509.ExtKeyUsageClientAuth}) {
+		err = core.InternalServerError("Generated certificate doesn't have correct key usage extensions")
+		return
+	}
+
+	return
 }
 
 // NewCertificate requests the issuance of a certificate.
@@ -299,7 +371,7 @@ func (ra *RegistrationAuthorityImpl) NewCertificate(req core.CertificateRequest,
 		return emptyCert, err
 	}
 
-	err = cert.MatchesCSR(csr, earliestExpiry)
+	err = ra.MatchesCSR(cert, csr, earliestExpiry)
 	if err != nil {
 		logEvent.Error = err.Error()
 		return emptyCert, err

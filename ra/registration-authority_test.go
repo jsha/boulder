@@ -199,7 +199,6 @@ func initAuthorities(t *testing.T) (*DummyValidationAuthority, *sa.SQLStorageAut
 		Publisher:      &pub,
 		ValidityPeriod: time.Hour * 2190,
 		NotAfter:       time.Now().Add(time.Hour * 8761),
-		MaxKeySize:     4096,
 		Clk:            fc,
 	}
 	cleanUp := func() {
@@ -218,8 +217,6 @@ func initAuthorities(t *testing.T) (*DummyValidationAuthority, *sa.SQLStorageAut
 	ra.VA = va
 	ra.CA = &ca
 	ra.PA = pa
-	ra.AuthzBase = "http://acme.invalid/authz/"
-	ra.MaxKeySize = 4096
 	ra.DNSResolver = &mocks.MockDNS{}
 
 	AuthzInitial.RegistrationID = Registration.ID
