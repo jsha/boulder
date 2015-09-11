@@ -49,10 +49,11 @@ func (logDesc *LogDescription) UnmarshalJSON(data []byte) error {
 	if err != nil {
 		return fmt.Errorf("")
 	}
-	var ok bool
-	if logDesc.PublicKey, ok = pk.(*ecdsa.PublicKey); !ok {
+	ecdsaKey, ok := pk.(*ecdsa.PublicKey)
+	if !ok {
 		return fmt.Errorf("Failed to unmarshal log description for %s, unsupported public key type", logDesc.URI)
 	}
+	logDesc.PublicKey = ecdsaKey
 
 	// Generate key hash for log ID
 	pkHash := sha256.Sum256(pkBytes)
@@ -86,16 +87,16 @@ const (
 	sctX509EntryType = 0
 )
 
-// PublisherAuthorityImpl defines a Publisher
-type PublisherAuthorityImpl struct {
+// PublisherImpl defines a Publisher
+type PublisherImpl struct {
 	log *blog.AuditLogger
 	CT  *CTConfig
 	SA  core.StorageAuthority
 }
 
-// NewPublisherAuthorityImpl creates a Publisher that will submit certificates
+// NewPublisherImpl creates a Publisher that will submit certificates
 // to any CT logs configured in CTConfig
-func NewPublisherAuthorityImpl(ctConfig *CTConfig) (pub PublisherAuthorityImpl, err error) {
+func NewPublisherImpl(ctConfig *CTConfig) (pub PublisherImpl, err error) {
 	logger := blog.GetAuditLogger()
 	logger.Notice("Publisher Authority Starting")
 	pub.log = logger
@@ -125,7 +126,7 @@ func NewPublisherAuthorityImpl(ctConfig *CTConfig) (pub PublisherAuthorityImpl, 
 	return
 }
 
-func (pub *PublisherAuthorityImpl) submitToCTLog(serial string, jsonSubmission []byte, log LogDescription, client http.Client) error {
+func (pub *PublisherImpl) submitToCTLog(serial string, jsonSubmission []byte, log LogDescription, client http.Client) error {
 	done := false
 	var retries int
 	var sct core.SignedCertificateTimestamp
@@ -185,7 +186,7 @@ func (pub *PublisherAuthorityImpl) submitToCTLog(serial string, jsonSubmission [
 		return err
 	}
 
-	pub.log.Notice(fmt.Sprintf(
+	pub.log.Info(fmt.Sprintf(
 		"Submitted certificate to CT log [Serial: %s, Log URI: %s, Retries: %d, Signature: %x]",
 		serial,
 		log.URI,
@@ -196,16 +197,6 @@ func (pub *PublisherAuthorityImpl) submitToCTLog(serial string, jsonSubmission [
 	sct.CertificateSerial = serial
 	err := pub.SA.AddSCTReceipt(sct)
 	if err != nil {
-		if strings.Contains(strings.ToLower(err.Error()), "duplicate entry") {
-			// We might want to check that the returned SCT == the SCT that we already
-			// have on file, but for now just ignore.
-			pub.log.Notice(fmt.Sprintf(
-				"SCT receipt has previously been submitted & stored [Serial: %s, Log URI: %s]",
-				serial,
-				log.URI,
-			))
-			return nil
-		}
 		// AUDIT[ Error Conditions ] 9cc4d537-8534-4970-8665-4b382abe82f3
 		pub.log.AuditErr(fmt.Errorf(
 			"Error adding SCT receipt for [%s to %s]: %s",
@@ -215,7 +206,7 @@ func (pub *PublisherAuthorityImpl) submitToCTLog(serial string, jsonSubmission [
 		))
 		return err
 	}
-	pub.log.Notice(fmt.Sprintf(
+	pub.log.Info(fmt.Sprintf(
 		"Stored SCT receipt from CT log submission [Serial: %s, Log URI: %s]",
 		serial,
 		log.URI,
@@ -225,7 +216,7 @@ func (pub *PublisherAuthorityImpl) submitToCTLog(serial string, jsonSubmission [
 
 // SubmitToCT will submit the certificate represented by certDER to any CT
 // logs configured in pub.CT.Logs
-func (pub *PublisherAuthorityImpl) SubmitToCT(der []byte) error {
+func (pub *PublisherImpl) SubmitToCT(der []byte) error {
 	if pub.CT == nil {
 		return nil
 	}

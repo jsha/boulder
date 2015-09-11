@@ -53,7 +53,7 @@ type CertificateAuthorityImpl struct {
 	SA             core.StorageAuthority
 	PA             core.PolicyAuthority
 	DB             core.CertificateAuthorityDatabase
-	Publisher      core.PublisherAuthority
+	Publisher      core.Publisher
 	Clk            clock.Clock // TODO(jmhodges): should be private, like log
 	log            *blog.AuditLogger
 	Prefix         int // Prepended to the serial number

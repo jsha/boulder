@@ -149,7 +149,7 @@ const (
 	agreementURL = "http://example.invalid/terms"
 )
 
-//GetRegistration is a mock
+// GetRegistration is a mock
 func (sa *MockSA) GetRegistration(id int64) (core.Registration, error) {
 	if id == 100 {
 		// Tag meaning "Missing"
@@ -191,7 +191,20 @@ func (sa *MockSA) GetRegistrationByKey(jwk jose.JsonWebKey) (core.Registration, 
 func (sa *MockSA) GetAuthorization(id string) (core.Authorization, error) {
 	if id == "valid" {
 		exp := time.Now().AddDate(100, 0, 0)
-		return core.Authorization{Status: core.StatusValid, RegistrationID: 1, Expires: &exp, Identifier: core.AcmeIdentifier{Type: "dns", Value: "not-an-example.com"}}, nil
+		return core.Authorization{
+			ID:             "valid",
+			Status:         core.StatusValid,
+			RegistrationID: 1,
+			Expires:        &exp,
+			Identifier:     core.AcmeIdentifier{Type: "dns", Value: "not-an-example.com"},
+			Challenges: []core.Challenge{
+				core.Challenge{
+					ID:   23,
+					Type: "dns",
+					URI:  "http://localhost:4300/acme/challenge/valid/23",
+				},
+			},
+		}, nil
 	}
 	return core.Authorization{}, nil
 }
@@ -284,11 +297,6 @@ func (sa *MockSA) UpdateRegistration(reg core.Registration) (err error) {
 	return
 }
 
-// GetSCTReceipts is a mock
-func (sa *MockSA) GetSCTReceipts(serial string) (scts []core.SignedCertificateTimestamp, err error) {
-	return
-}
-
 // GetSCTReceipt  is a mock
 func (sa *MockSA) GetSCTReceipt(serial string, logID string) (sct core.SignedCertificateTimestamp, err error) {
 	return
@@ -300,8 +308,8 @@ func (sa *MockSA) AddSCTReceipt(sct core.SignedCertificateTimestamp) (err error)
 }
 
 // GetLatestValidAuthorization is a mock
-func (sa *MockSA) GetLatestValidAuthorization(registrationID int64, identifier core.AcmeIdentifier) (authz core.Authorization, err error) {
-	if registrationID == 1 && identifier.Type == "dns" {
+func (sa *MockSA) GetLatestValidAuthorization(registrationId int64, identifier core.AcmeIdentifier) (authz core.Authorization, err error) {
+	if registrationId == 1 && identifier.Type == "dns" {
 		if sa.authorizedDomains[identifier.Value] || identifier.Value == "not-an-example.com" {
 			exp := time.Now().AddDate(100, 0, 0)
 			return core.Authorization{Status: core.StatusValid, RegistrationID: 1, Expires: &exp, Identifier: identifier}, nil

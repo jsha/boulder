@@ -62,7 +62,6 @@ const (
 	MethodAddCertificate                    = "AddCertificate"                    // SA
 	MethodAlreadyDeniedCSR                  = "AlreadyDeniedCSR"                  // SA
 	MethodGetSCTReceipt                     = "GetSCTReceipt"                     // SA
-	MethodGetSCTReceipts                    = "GetSCTReceipts"                    // SA
 	MethodAddSCTReceipt                     = "AddSCTReceipt"                     // SA
 	MethodSubmitToCT                        = "SubmitToCT"                        // Pub
 )
@@ -579,7 +578,7 @@ func (vac ValidationAuthorityClient) CheckCAARecords(ident core.AcmeIdentifier) 
 	return
 }
 
-func NewPublisherAuthorityServer(rpc RPCServer, impl core.PublisherAuthority) (err error) {
+func NewPublisherServer(rpc RPCServer, impl core.Publisher) (err error) {
 	rpc.Handle(MethodSubmitToCT, func(req []byte) (response []byte, err error) {
 		err = impl.SubmitToCT(req)
 		return
@@ -588,19 +587,19 @@ func NewPublisherAuthorityServer(rpc RPCServer, impl core.PublisherAuthority) (e
 	return nil
 }
 
-// PublisherAuthorityClient is a client to communicate with the Publisher Authority
-type PublisherAuthorityClient struct {
+// PublisherClient is a client to communicate with the Publisher Authority
+type PublisherClient struct {
 	rpc RPCClient
 }
 
-// NewPublisherAuthorityClient constructs an RPC client
-func NewPublisherAuthorityClient(client RPCClient) (pub PublisherAuthorityClient, err error) {
-	pub = PublisherAuthorityClient{rpc: client}
+// NewPublisherClient constructs an RPC client
+func NewPublisherClient(client RPCClient) (pub PublisherClient, err error) {
+	pub = PublisherClient{rpc: client}
 	return
 }
 
 // SubmitToCT sends a request to submit a certifcate to CT logs
-func (pub PublisherAuthorityClient) SubmitToCT(der []byte) (err error) {
+func (pub PublisherClient) SubmitToCT(der []byte) (err error) {
 	_, err = pub.rpc.DispatchSync(MethodSubmitToCT, der)
 	return
 }
@@ -1019,18 +1018,6 @@ func NewStorageAuthorityServer(rpc RPCServer, impl core.StorageAuthority) error 
 		return
 	})
 
-	rpc.Handle(MethodGetSCTReceipts, func(req []byte) (response []byte, err error) {
-		scts, err := impl.GetSCTReceipts(string(req))
-		jsonResponse, err := json.Marshal(scts)
-		if err != nil {
-			// AUDIT[ Error Conditions ] 9cc4d537-8534-4970-8665-4b382abe82f3
-			errorCondition(MethodGetSCTReceipts, err, req)
-			return
-		}
-
-		return jsonResponse, nil
-	})
-
 	rpc.Handle(MethodGetSCTReceipt, func(req []byte) (response []byte, err error) {
 		var gsctReq struct {
 			Serial string
@@ -1334,16 +1321,6 @@ func (cac StorageAuthorityClient) AlreadyDeniedCSR(names []string) (exists bool,
 	case 1:
 		exists = true
 	}
-	return
-}
-
-func (cac StorageAuthorityClient) GetSCTReceipts(serial string) (receipts []core.SignedCertificateTimestamp, err error) {
-	response, err := cac.rpc.DispatchSync(MethodGetSCTReceipts, []byte(serial))
-	if err != nil {
-		return
-	}
-
-	err = json.Unmarshal(response, &receipts)
 	return
 }
 

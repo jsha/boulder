@@ -60,7 +60,7 @@ func main() {
 			pubRPC, err := rpc.NewAmqpRPCClient("CA->Publisher", c.AMQP.Publisher.Server, srv.Channel)
 			cmd.FailOnError(err, "Unable to create RPC client")
 
-			pubc, err := rpc.NewPublisherAuthorityClient(pubRPC)
+			pubc, err := rpc.NewPublisherClient(pubRPC)
 			cmd.FailOnError(err, "Failed to create Publisher client")
 
 			cai.Publisher = &pubc

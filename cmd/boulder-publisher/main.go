@@ -29,7 +29,7 @@ func main() {
 
 		blog.SetAuditLogger(auditlogger)
 
-		pubi, err := publisher.NewPublisherAuthorityImpl(c.Publisher.CT)
+		pubi, err := publisher.NewPublisherImpl(c.Publisher.CT)
 		cmd.FailOnError(err, "Could not setup PA")
 
 		go cmd.DebugServer(c.Publisher.DebugAddr)
@@ -47,7 +47,7 @@ func main() {
 
 		pubs, err := rpc.NewAmqpRPCServer(c.AMQP.Publisher.Server, connectionHandler)
 		cmd.FailOnError(err, "Unable to create PA RPC server")
-		rpc.NewPublisherAuthorityServer(pubs, &pubi)
+		rpc.NewPublisherServer(pubs, &pubi)
 
 		auditlogger.Info(app.VersionString())
 

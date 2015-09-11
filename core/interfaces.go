@@ -111,7 +111,6 @@ type StorageGetter interface {
 	GetCertificateByShortSerial(string) (Certificate, error)
 	GetCertificateStatus(string) (CertificateStatus, error)
 	AlreadyDeniedCSR([]string) (bool, error)
-	GetSCTReceipts(string) ([]SignedCertificateTimestamp, error)
 	GetSCTReceipt(string, string) (SignedCertificateTimestamp, error)
 }
 
@@ -156,7 +155,7 @@ type DNSResolver interface {
 	LookupMX(string) ([]string, time.Duration, error)
 }
 
-// PublisherAuthority defines the public interface for the Boulder Publisher
-type PublisherAuthority interface {
+// Publisher defines the public interface for the Boulder Publisher
+type Publisher interface {
 	SubmitToCT([]byte) error
 }

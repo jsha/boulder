@@ -637,22 +637,6 @@ func (ssa *SQLStorageAuthority) AlreadyDeniedCSR(names []string) (already bool, 
 	return
 }
 
-// GetSCTReceipts gets all of the SCT receipts for a given certificate serial
-func (ssa *SQLStorageAuthority) GetSCTReceipts(serial string) (receipts []core.SignedCertificateTimestamp, err error) {
-	_, err = ssa.dbMap.Select(
-		&receipts,
-		"SELECT * FROM sctReceipts WHERE certificateSerial = :serial ORDER BY logID DESC",
-		map[string]interface{}{"serial": serial},
-	)
-	if err != nil {
-		return
-	}
-	if len(receipts) == 0 {
-		return nil, sql.ErrNoRows
-	}
-	return
-}
-
 // GetSCTReceipt gets a specific SCT receipt for a given certificate serial and
 // CT log ID
 func (ssa *SQLStorageAuthority) GetSCTReceipt(serial string, logID string) (receipt core.SignedCertificateTimestamp, err error) {

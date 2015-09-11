@@ -136,15 +136,15 @@ func logSrv(t *testing.T, stopChan, waitChan chan bool) {
 	server.Serve(conn)
 }
 
-func TestNewPublisherAuthorityImpl(t *testing.T) {
+func TestNewPublisherImpl(t *testing.T) {
 	// Allowed
 	ctConf := CTConfig{SubmissionBackoffString: "0s", BundleFilename: issuerPath}
-	_, err := NewPublisherAuthorityImpl(&ctConf)
-	test.AssertNotError(t, err, "Couldn't create new PublisherAuthority")
+	_, err := NewPublisherImpl(&ctConf)
+	test.AssertNotError(t, err, "Couldn't create new Publisher")
 
 	ctConf = CTConfig{Logs: []LogDescription{LogDescription{URI: "http://localhost:8080/ct/v1/add-chain"}}, SubmissionBackoffString: "0s", BundleFilename: issuerPath}
-	_, err = NewPublisherAuthorityImpl(&ctConf)
-	test.AssertNotError(t, err, "Couldn't create new PublisherAuthority")
+	_, err = NewPublisherImpl(&ctConf)
+	test.AssertNotError(t, err, "Couldn't create new Publisher")
 }
 
 func TestCheckSignature(t *testing.T) {
@@ -178,10 +178,10 @@ func TestSubmitToCT(t *testing.T) {
 
 	intermediatePEM, _ := pem.Decode([]byte(testIntermediate))
 
-	pub, err := NewPublisherAuthorityImpl(&CTConfig{Logs: []LogDescription{LogDescription{URI: "http://localhost:8080/ct/v1/add-chain"}}, SubmissionBackoffString: "0s", BundleFilename: issuerPath})
+	pub, err := NewPublisherImpl(&CTConfig{Logs: []LogDescription{LogDescription{URI: "http://localhost:8080/ct/v1/add-chain"}}, SubmissionBackoffString: "0s", BundleFilename: issuerPath})
 	pub.CT.IssuerBundle = append(pub.CT.IssuerBundle, base64.StdEncoding.EncodeToString(intermediatePEM.Bytes))
 	pub.SA = &mocks.MockSA{}
-	test.AssertNotError(t, err, "Couldn't create new PublisherAuthority")
+	test.AssertNotError(t, err, "Couldn't create new Publisher")
 
 	leafPEM, _ := pem.Decode([]byte(testLeaf))
 

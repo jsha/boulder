@@ -422,53 +422,6 @@ func TestGetSCTReceipt(t *testing.T) {
 	test.Assert(t, sqlSCT.CertificateSerial == sct.CertificateSerial, "Invalid certificate serial")
 }
 
-func TestGetSCTReceipts(t *testing.T) {
-	sigBytes, err := base64.StdEncoding.DecodeString(sctSignature)
-	test.AssertNotError(t, err, "Failed to decode SCT signature")
-	secondSigBytes, err := base64.StdEncoding.DecodeString(sctSignature)
-	test.AssertNotError(t, err, "Failed to decode SCT signature")
-	sct := core.SignedCertificateTimestamp{
-		SCTVersion:        sctVersion,
-		LogID:             sctLogID,
-		Timestamp:         sctTimestamp,
-		Signature:         sigBytes,
-		CertificateSerial: sctCertSerial,
-	}
-	sa, _, cleanup := initSA(t)
-	defer cleanup()
-	err = sa.AddSCTReceipt(sct)
-	test.AssertNotError(t, err, "Failed to add SCT receipt")
-
-	secondSCT := core.SignedCertificateTimestamp{
-		SCTVersion:        sctVersion,
-		LogID:             sctLogID,
-		Timestamp:         sctTimestamp,
-		Signature:         secondSigBytes,
-		CertificateSerial: sctCertSerial,
-	}
-
-	secondSCT.LogID = "0" + secondSCT.LogID[1:]
-	secondSCT.Signature[0] = 0
-	err = sa.AddSCTReceipt(secondSCT)
-	test.AssertNotError(t, err, "Failed to add second SCT receipt")
-
-	sqlSCTs, err := sa.GetSCTReceipts(sctCertSerial)
-	test.AssertNotError(t, err, "Failed to retrieve multiple recipets")
-	test.Assert(t, len(sqlSCTs) == 2, "Incorect number of SCTs returned")
-
-	test.Assert(t, sqlSCTs[0].SCTVersion == sct.SCTVersion, "Invalid SCT version for first receipt")
-	test.Assert(t, sqlSCTs[0].LogID == sct.LogID, "Invalid log ID for first receipt")
-	test.Assert(t, sqlSCTs[0].Timestamp == sct.Timestamp, "Invalid timestamp for first receipt")
-	test.Assert(t, bytes.Compare(sqlSCTs[0].Signature, sct.Signature) == 0, "Invalid signature for first receipt")
-	test.Assert(t, sqlSCTs[0].CertificateSerial == sct.CertificateSerial, "Invalid certificate serial for first receipt")
-
-	test.Assert(t, sqlSCTs[1].SCTVersion == sct.SCTVersion, "Invalid SCT version for second receipt")
-	test.Assert(t, sqlSCTs[1].LogID == secondSCT.LogID, "Invalid log ID for second receipt")
-	test.Assert(t, sqlSCTs[1].Timestamp == sct.Timestamp, "Invalid timestamp for second receipt")
-	test.Assert(t, bytes.Compare(sqlSCTs[1].Signature, secondSCT.Signature) == 0, "Invalid signature for second receipt")
-	test.Assert(t, sqlSCTs[1].CertificateSerial == sct.CertificateSerial, "Invalid certificate serial for second receipt")
-}
-
 func TestUpdateOCSP(t *testing.T) {
 	sa, fc, cleanUp := initSA(t)
 	defer cleanUp()
