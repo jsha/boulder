@@ -51,7 +51,13 @@
     "dbConnect": "mysql+tcp://boulder@localhost:3306/boulder_ca_integration",
     "debugAddr": "localhost:8001",
     "Key": {
-      "File": "test/test-ca.key"
+      "PKCS11": {
+        "Module": "/usr/lib/x86_64-linux-gnu/opensc-pkcs11.so",
+        "TokenLabel": "PIV_II (PIV Card Holder pin)",
+        "PrivateKeyLabel": "SIGN key",
+        "SlotID": 1,
+        "PIN": "123456"
+      }
     },
     "expiry": "2160h",
     "lifespanOCSP": "96h",
