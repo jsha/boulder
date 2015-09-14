@@ -10,14 +10,14 @@ import (
 	"errors"
 	"fmt"
 	"net/mail"
-	"regexp"
-	"strconv"
+	"reflect"
+	"sort"
 	"strings"
 	"time"
 
+	"github.com/letsencrypt/boulder/Godeps/_workspace/src/github.com/jmhodges/clock"
 	"github.com/letsencrypt/boulder/core"
 	blog "github.com/letsencrypt/boulder/log"
-	"github.com/letsencrypt/boulder/policy"
 )
 
 // RegistrationAuthorityImpl defines an RA.
@@ -30,26 +30,14 @@ type RegistrationAuthorityImpl struct {
 	SA          core.StorageAuthority
 	PA          core.PolicyAuthority
 	DNSResolver core.DNSResolver
+	clk         clock.Clock
 	log         *blog.AuditLogger
-
-	AuthzBase  string
-	MaxKeySize int
 }
 
 // NewRegistrationAuthorityImpl constructs a new RA object.
-func NewRegistrationAuthorityImpl() RegistrationAuthorityImpl {
-	logger := blog.GetAuditLogger()
-	logger.Notice("Registration Authority Starting")
-
-	ra := RegistrationAuthorityImpl{log: logger}
-	ra.PA = policy.NewPolicyAuthorityImpl()
+func NewRegistrationAuthorityImpl(clk clock.Clock, logger *blog.AuditLogger) RegistrationAuthorityImpl {
+	ra := RegistrationAuthorityImpl{clk: clk, log: logger}
 	return ra
-}
-
-var allButLastPathSegment = regexp.MustCompile("^.*/")
-
-func lastPathSegment(url *core.AcmeURL) string {
-	return allButLastPathSegment.ReplaceAllString(url.Path, "")
 }
 
 func validateEmail(address string, resolver core.DNSResolver) (err error) {
@@ -106,7 +94,7 @@ type certificateRequestEvent struct {
 
 // NewRegistration constructs a new Registration from a request.
 func (ra *RegistrationAuthorityImpl) NewRegistration(init core.Registration) (reg core.Registration, err error) {
-	if err = core.GoodKey(init.Key.Key, ra.MaxKeySize); err != nil {
+	if err = core.GoodKey(init.Key.Key); err != nil {
 		return core.Registration{}, core.MalformedRequestError(fmt.Sprintf("Invalid public key: %s", err.Error()))
 	}
 	reg = core.Registration{
@@ -132,7 +120,8 @@ func (ra *RegistrationAuthorityImpl) NewRegistration(init core.Registration) (re
 
 // NewAuthorization constuct a new Authz from a request.
 func (ra *RegistrationAuthorityImpl) NewAuthorization(request core.Authorization, regID int64) (authz core.Authorization, err error) {
-	if regID <= 0 {
+	reg, err := ra.SA.GetRegistration(regID)
+	if err != nil {
 		err = core.MalformedRequestError(fmt.Sprintf("Invalid registration ID: %d", regID))
 		return authz, err
 	}
@@ -160,6 +149,11 @@ func (ra *RegistrationAuthorityImpl) NewAuthorization(request core.Authorization
 	// Create validations, but we have to update them with URIs later
 	challenges, combinations := ra.PA.ChallengesFor(identifier)
 
+	for i, _ := range challenges {
+		// Add the account key used to generate the challenge
+		challenges[i].AccountKey = &reg.Key
+	}
+
 	// Partially-filled object
 	authz = core.Authorization{
 		Identifier:     identifier,
@@ -175,31 +169,103 @@ func (ra *RegistrationAuthorityImpl) NewAuthorization(request core.Authorization
 		// InternalServerError since the user-data was validated before being
 		// passed to the SA.
 		err = core.InternalServerError(fmt.Sprintf("Invalid authorization request: %s", err))
-		return authz, err
+		return core.Authorization{}, err
 	}
 
-	// Construct all the challenge URIs
-	for i := range authz.Challenges {
-		// Ignoring these errors because we construct the URLs to be correct
-		challengeURI, _ := core.ParseAcmeURL(ra.AuthzBase + authz.ID + "?challenge=" + strconv.Itoa(i))
-		authz.Challenges[i].URI = challengeURI
-
-		if !authz.Challenges[i].IsSane(false) {
+	// Check each challenge for sanity.
+	for _, challenge := range authz.Challenges {
+		if !challenge.IsSane(false) {
 			// InternalServerError because we generated these challenges, they should
 			// be OK.
-			err = core.InternalServerError(fmt.Sprintf("Challenge didn't pass sanity check: %+v", authz.Challenges[i]))
-			return authz, err
+			err = core.InternalServerError(fmt.Sprintf("Challenge didn't pass sanity check: %+v", challenge))
+			return core.Authorization{}, err
 		}
 	}
 
-	// Store the authorization object, then return it
-	err = ra.SA.UpdatePendingAuthorization(authz)
-	if err != nil {
-		// InternalServerError because we created the authorization just above,
-		// and adding Sane challenges should not break it.
-		err = core.InternalServerError(err.Error())
-	}
 	return authz, err
+}
+
+// MatchesCSR tests the contents of a generated certificate to make sure
+// that the PublicKey, CommonName, and DNSNames match those provided in
+// the CSR that was used to generate the certificate. It also checks the
+// following fields for:
+//		* notAfter is after earliestExpiry
+//		* notBefore is not more than 24 hours ago
+//		* BasicConstraintsValid is true
+//		* IsCA is false
+//		* ExtKeyUsage only contains ExtKeyUsageServerAuth & ExtKeyUsageClientAuth
+//		* Subject only contains CommonName & Names
+func (ra *RegistrationAuthorityImpl) MatchesCSR(
+	cert core.Certificate,
+	csr *x509.CertificateRequest,
+	earliestExpiry time.Time) (err error) {
+	parsedCertificate, err := x509.ParseCertificate([]byte(cert.DER))
+	if err != nil {
+		return
+	}
+
+	// Check issued certificate matches what was expected from the CSR
+	hostNames := make([]string, len(csr.DNSNames))
+	copy(hostNames, csr.DNSNames)
+	if len(csr.Subject.CommonName) > 0 {
+		hostNames = append(hostNames, csr.Subject.CommonName)
+	}
+	hostNames = core.UniqueNames(hostNames)
+
+	if !core.KeyDigestEquals(parsedCertificate.PublicKey, csr.PublicKey) {
+		err = core.InternalServerError("Generated certificate public key doesn't match CSR public key")
+		return
+	}
+	if len(csr.Subject.CommonName) > 0 && parsedCertificate.Subject.CommonName != csr.Subject.CommonName {
+		err = core.InternalServerError("Generated certificate CommonName doesn't match CSR CommonName")
+		return
+	}
+	// Sort both slices of names before comparison.
+	parsedNames := parsedCertificate.DNSNames
+	sort.Strings(parsedNames)
+	sort.Strings(hostNames)
+	if !reflect.DeepEqual(parsedNames, hostNames) {
+		err = core.InternalServerError("Generated certificate DNSNames don't match CSR DNSNames")
+		return
+	}
+	if !reflect.DeepEqual(parsedCertificate.IPAddresses, csr.IPAddresses) {
+		err = core.InternalServerError("Generated certificate IPAddresses don't match CSR IPAddresses")
+		return
+	}
+	if !reflect.DeepEqual(parsedCertificate.EmailAddresses, csr.EmailAddresses) {
+		err = core.InternalServerError("Generated certificate EmailAddresses don't match CSR EmailAddresses")
+		return
+	}
+	if len(parsedCertificate.Subject.Country) > 0 || len(parsedCertificate.Subject.Organization) > 0 ||
+		len(parsedCertificate.Subject.OrganizationalUnit) > 0 || len(parsedCertificate.Subject.Locality) > 0 ||
+		len(parsedCertificate.Subject.Province) > 0 || len(parsedCertificate.Subject.StreetAddress) > 0 ||
+		len(parsedCertificate.Subject.PostalCode) > 0 || len(parsedCertificate.Subject.SerialNumber) > 0 {
+		err = core.InternalServerError("Generated certificate Subject contains fields other than CommonName or Names")
+		return
+	}
+	if parsedCertificate.NotAfter.After(earliestExpiry) {
+		err = core.InternalServerError("Generated certificate expires before earliest expiration")
+		return
+	}
+	now := ra.clk.Now()
+	if now.Sub(parsedCertificate.NotBefore) > time.Hour*24 {
+		err = core.InternalServerError(fmt.Sprintf("Generated certificate is back dated %s", now.Sub(parsedCertificate.NotBefore)))
+		return
+	}
+	if !parsedCertificate.BasicConstraintsValid {
+		err = core.InternalServerError("Generated certificate doesn't have basic constraints set")
+		return
+	}
+	if parsedCertificate.IsCA {
+		err = core.InternalServerError("Generated certificate can sign other certificates")
+		return
+	}
+	if !reflect.DeepEqual(parsedCertificate.ExtKeyUsage, []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth, x509.ExtKeyUsageClientAuth}) {
+		err = core.InternalServerError("Generated certificate doesn't have correct key usage extensions")
+		return
+	}
+
+	return
 }
 
 // NewCertificate requests the issuance of a certificate.
@@ -215,7 +281,7 @@ func (ra *RegistrationAuthorityImpl) NewCertificate(req core.CertificateRequest,
 		ID:            core.NewToken(),
 		Requester:     regID,
 		RequestMethod: "online",
-		RequestTime:   time.Now(),
+		RequestTime:   ra.clk.Now(),
 	}
 
 	// No matter what, log the request
@@ -276,7 +342,7 @@ func (ra *RegistrationAuthorityImpl) NewCertificate(req core.CertificateRequest,
 	}
 
 	// Check that each requested name has a valid authorization
-	now := time.Now()
+	now := ra.clk.Now()
 	earliestExpiry := time.Date(2100, 01, 01, 0, 0, 0, 0, time.UTC)
 	for _, name := range names {
 		authz, err := ra.SA.GetLatestValidAuthorization(registration.ID, core.AcmeIdentifier{Type: core.IdentifierDNS, Value: name})
@@ -305,7 +371,7 @@ func (ra *RegistrationAuthorityImpl) NewCertificate(req core.CertificateRequest,
 		return emptyCert, err
 	}
 
-	err = cert.MatchesCSR(csr, earliestExpiry)
+	err = ra.MatchesCSR(cert, csr, earliestExpiry)
 	if err != nil {
 		logEvent.Error = err.Error()
 		return emptyCert, err
@@ -324,7 +390,7 @@ func (ra *RegistrationAuthorityImpl) NewCertificate(req core.CertificateRequest,
 	logEvent.CommonName = parsedCertificate.Subject.CommonName
 	logEvent.NotBefore = parsedCertificate.NotBefore
 	logEvent.NotAfter = parsedCertificate.NotAfter
-	logEvent.ResponseTime = time.Now()
+	logEvent.ResponseTime = ra.clk.Now()
 
 	logEventResult = "successful"
 	return cert, nil
@@ -374,25 +440,92 @@ func (ra *RegistrationAuthorityImpl) UpdateAuthorization(base core.Authorization
 		return
 	}
 
+	// Reject the update if the challenge in question was created
+	// with a different account key
+	if !core.KeyDigestEquals(reg.Key, authz.Challenges[challengeIndex].AccountKey) {
+		err = core.UnauthorizedError("Challenge cannot be updated with a different key")
+		return
+	}
+
 	// Dispatch to the VA for service
-	ra.VA.UpdateValidations(authz, challengeIndex, reg.Key)
+	ra.VA.UpdateValidations(authz, challengeIndex)
 
 	return
 }
 
-// RevokeCertificate terminates trust in the certificate provided.
-func (ra *RegistrationAuthorityImpl) RevokeCertificate(cert x509.Certificate) (err error) {
-	serialString := core.SerialToString(cert.SerialNumber)
-	err = ra.CA.RevokeCertificate(serialString, 0)
+func revokeEvent(state, serial, cn string, names []string, revocationCode core.RevocationCode) string {
+	return fmt.Sprintf(
+		"Revocation - State: %s, Serial: %s, CN: %s, DNS Names: %s, Reason: %s",
+		state,
+		serial,
+		cn,
+		names,
+		core.RevocationReasons[revocationCode],
+	)
+}
 
-	// AUDIT[ Revocation Requests ] 4e85d791-09c0-4ab3-a837-d3d67e945134
+// RevokeCertificateWithReg terminates trust in the certificate provided.
+func (ra *RegistrationAuthorityImpl) RevokeCertificateWithReg(cert x509.Certificate, revocationCode core.RevocationCode, regID int64) (err error) {
+	serialString := core.SerialToString(cert.SerialNumber)
+	err = ra.CA.RevokeCertificate(serialString, revocationCode)
+
+	state := "Failure"
+	defer func() {
+		// AUDIT[ Revocation Requests ] 4e85d791-09c0-4ab3-a837-d3d67e945134
+		// Needed:
+		//   Serial
+		//   CN
+		//   DNS names
+		//   Revocation reason
+		//   Registration ID of requester
+		//   Error (if there was one)
+		ra.log.Audit(fmt.Sprintf(
+			"%s, Request by registration ID: %d",
+			revokeEvent(state, serialString, cert.Subject.CommonName, cert.DNSNames, revocationCode),
+			regID,
+		))
+	}()
+
 	if err != nil {
-		ra.log.Audit(fmt.Sprintf("Revocation error - %s - %s", serialString, err))
+		state = fmt.Sprintf("Failure -- %s", err)
 		return err
 	}
 
-	ra.log.Audit(fmt.Sprintf("Revocation - %s", serialString))
-	return err
+	state = "Success"
+	return nil
+}
+
+// AdministrativelyRevokeCertificate terminates trust in the certificate provided and
+// does not require the registration ID of the requester since this method is only
+// called from the admin-revoker tool.
+func (ra *RegistrationAuthorityImpl) AdministrativelyRevokeCertificate(cert x509.Certificate, revocationCode core.RevocationCode, user string) error {
+	serialString := core.SerialToString(cert.SerialNumber)
+	err := ra.CA.RevokeCertificate(serialString, revocationCode)
+
+	state := "Failure"
+	defer func() {
+		// AUDIT[ Revocation Requests ] 4e85d791-09c0-4ab3-a837-d3d67e945134
+		// Needed:
+		//   Serial
+		//   CN
+		//   DNS names
+		//   Revocation reason
+		//   Name of admin-revoker user
+		//   Error (if there was one)
+		ra.log.Audit(fmt.Sprintf(
+			"%s, admin-revoker user: %s",
+			revokeEvent(state, serialString, cert.Subject.CommonName, cert.DNSNames, revocationCode),
+			user,
+		))
+	}()
+
+	if err != nil {
+		state = fmt.Sprintf("Failure -- %s", err)
+		return err
+	}
+
+	state = "Success"
+	return nil
 }
 
 // OnValidationUpdate is called when a given Authorization is updated by the VA.
@@ -424,7 +557,7 @@ func (ra *RegistrationAuthorityImpl) OnValidationUpdate(authz core.Authorization
 		authz.Status = core.StatusInvalid
 	} else {
 		// TODO: Enable configuration of expiry time
-		exp := time.Now().Add(365 * 24 * time.Hour)
+		exp := ra.clk.Now().Add(365 * 24 * time.Hour)
 		authz.Expires = &exp
 	}
 

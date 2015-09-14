@@ -17,10 +17,12 @@ import (
 	"encoding/asn1"
 	"encoding/base64"
 	"encoding/json"
+	"encoding/pem"
 	"errors"
 	"fmt"
 	"hash"
 	"io"
+	"io/ioutil"
 	"math/big"
 	"net/url"
 	"strings"
@@ -63,6 +65,9 @@ type UnauthorizedError string
 // NotFoundError indicates the destination was unknown. Whoa oh oh ohhh.
 type NotFoundError string
 
+// LengthRequiredError indicates a POST was sent with no Content-Length.
+type LengthRequiredError string
+
 // SyntaxError indicates the user improperly formatted their data.
 type SyntaxError string
 
@@ -80,6 +85,7 @@ func (e NotSupportedError) Error() string        { return string(e) }
 func (e MalformedRequestError) Error() string    { return string(e) }
 func (e UnauthorizedError) Error() string        { return string(e) }
 func (e NotFoundError) Error() string            { return string(e) }
+func (e LengthRequiredError) Error() string      { return string(e) }
 func (e SyntaxError) Error() string              { return string(e) }
 func (e SignatureValidationError) Error() string { return string(e) }
 func (e CertificateIssuanceError) Error() string { return string(e) }
@@ -144,6 +150,9 @@ func Fingerprint256(data []byte) string {
 func KeyDigest(key crypto.PublicKey) (string, error) {
 	switch t := key.(type) {
 	case *jose.JsonWebKey:
+		if t == nil {
+			return "", fmt.Errorf("Cannot compute digest of nil key")
+		}
 		return KeyDigest(t.Key)
 	case jose.JsonWebKey:
 		return KeyDigest(t.Key)
@@ -179,12 +188,11 @@ func ParseAcmeURL(s string) (*AcmeURL, error) {
 	if err != nil {
 		return nil, err
 	}
-	au := AcmeURL(*u)
-	return &au, nil
+	return (*AcmeURL)(u), nil
 }
 
 func (u *AcmeURL) String() string {
-	uu := url.URL(*u)
+	uu := (*url.URL)(u)
 	return uu.String()
 }
 
@@ -199,8 +207,7 @@ func (u *AcmeURL) PathSegments() (segments []string) {
 
 // MarshalJSON encodes an AcmeURL for transfer
 func (u *AcmeURL) MarshalJSON() ([]byte, error) {
-	uu := url.URL(*u)
-	return json.Marshal(uu.String())
+	return json.Marshal(u.String())
 }
 
 // UnmarshalJSON decodes an AcmeURL from transfer
@@ -340,5 +347,19 @@ func UniqueNames(names []string) (unique []string) {
 	for name := range nameMap {
 		unique = append(unique, name)
 	}
+	return
+}
+
+// LoadCert loads a PEM certificate specified by filename or returns a error
+func LoadCert(filename string) (cert *x509.Certificate, err error) {
+	certPEM, err := ioutil.ReadFile(filename)
+	if err != nil {
+		return
+	}
+	block, _ := pem.Decode(certPEM)
+	if block == nil {
+		return nil, fmt.Errorf("No data in cert PEM file %s", filename)
+	}
+	cert, err = x509.ParseCertificate(block.Bytes)
 	return
 }

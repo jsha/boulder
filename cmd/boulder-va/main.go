@@ -36,10 +36,28 @@ func main() {
 
 		go cmd.ProfileCmd("VA", stats)
 
-		vai := va.NewValidationAuthorityImpl(c.CA.TestMode)
+		pc := &va.PortConfig{
+			SimpleHTTPPort:  80,
+			SimpleHTTPSPort: 443,
+			DVSNIPort:       443,
+		}
+		if c.VA.PortConfig.SimpleHTTPPort != 0 {
+			pc.SimpleHTTPPort = c.VA.PortConfig.SimpleHTTPPort
+		}
+		if c.VA.PortConfig.SimpleHTTPSPort != 0 {
+			pc.SimpleHTTPSPort = c.VA.PortConfig.SimpleHTTPSPort
+		}
+		if c.VA.PortConfig.DVSNIPort != 0 {
+			pc.DVSNIPort = c.VA.PortConfig.DVSNIPort
+		}
+		vai := va.NewValidationAuthorityImpl(pc)
 		dnsTimeout, err := time.ParseDuration(c.Common.DNSTimeout)
 		cmd.FailOnError(err, "Couldn't parse DNS timeout")
-		vai.DNSResolver = core.NewDNSResolverImpl(dnsTimeout, []string{c.Common.DNSResolver})
+		if !c.Common.DNSAllowLoopbackAddresses {
+			vai.DNSResolver = core.NewDNSResolverImpl(dnsTimeout, []string{c.Common.DNSResolver})
+		} else {
+			vai.DNSResolver = core.NewTestDNSResolverImpl(dnsTimeout, []string{c.Common.DNSResolver})
+		}
 		vai.UserAgent = c.VA.UserAgent
 
 		connectionHandler := func(srv *rpc.AmqpRPCServer) {
@@ -54,7 +72,7 @@ func main() {
 
 		vas, err := rpc.NewAmqpRPCServer(c.AMQP.VA.Server, connectionHandler)
 		cmd.FailOnError(err, "Unable to create VA RPC server")
-		rpc.NewValidationAuthorityServer(vas, &vai)
+		rpc.NewValidationAuthorityServer(vas, vai)
 
 		auditlogger.Info(app.VersionString())
 

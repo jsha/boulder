@@ -50,27 +50,23 @@ type ValidationAuthorityImpl struct {
 	UserAgent       string
 }
 
-// NewValidationAuthorityImpl constructs a new VA, and may place it
-// into Test Mode (tm)
-func NewValidationAuthorityImpl(tm bool) ValidationAuthorityImpl {
+// PortConfig specifies what ports the VA should call to on the remote
+// host when performing its checks.
+type PortConfig struct {
+	SimpleHTTPPort  int
+	SimpleHTTPSPort int
+	DVSNIPort       int
+}
+
+// NewValidationAuthorityImpl constructs a new VA
+func NewValidationAuthorityImpl(pc *PortConfig) *ValidationAuthorityImpl {
 	logger := blog.GetAuditLogger()
 	logger.Notice("Validation Authority Starting")
-	// TODO(jsha): Remove TestMode entirely. Instead, the various validation ports
-	// should be exported, so the cmd file can set them based on a config.
-	if tm {
-		return ValidationAuthorityImpl{
-			log:             logger,
-			simpleHTTPPort:  5001,
-			simpleHTTPSPort: 5001,
-			dvsniPort:       5001,
-		}
-	} else {
-		return ValidationAuthorityImpl{
-			log:             logger,
-			simpleHTTPPort:  80,
-			simpleHTTPSPort: 443,
-			dvsniPort:       443,
-		}
+	return &ValidationAuthorityImpl{
+		log:             logger,
+		simpleHTTPPort:  pc.SimpleHTTPPort,
+		simpleHTTPSPort: pc.SimpleHTTPSPort,
+		dvsniPort:       pc.DVSNIPort,
 	}
 }
 
@@ -142,7 +138,7 @@ func problemDetailsFromDNSError(err error) *core.ProblemDetails {
 // This is the same choice made by the Go internal resolution library used by
 // net/http, except we only send A queries and accept IPv4 addresses.
 // TODO(#593): Add IPv6 support
-func (va ValidationAuthorityImpl) getAddr(hostname string) (addr net.IP, addrs []net.IP, problem *core.ProblemDetails) {
+func (va *ValidationAuthorityImpl) getAddr(hostname string) (addr net.IP, addrs []net.IP, problem *core.ProblemDetails) {
 	addrs, _, err := va.DNSResolver.LookupHost(hostname)
 	if err != nil {
 		problem = problemDetailsFromDNSError(err)
@@ -172,7 +168,7 @@ func (d *dialer) Dial(_, _ string) (net.Conn, error) {
 
 // resolveAndConstructDialer gets the prefered address using va.getAddr and returns
 // the chosen address and dialer for that address and correct port.
-func (va ValidationAuthorityImpl) resolveAndConstructDialer(name, defaultPort string) (dialer, *core.ProblemDetails) {
+func (va *ValidationAuthorityImpl) resolveAndConstructDialer(name, defaultPort string) (dialer, *core.ProblemDetails) {
 	port := fmt.Sprintf("%d", va.simpleHTTPPort)
 	if defaultPort != "" {
 		port = defaultPort
@@ -195,7 +191,7 @@ func (va ValidationAuthorityImpl) resolveAndConstructDialer(name, defaultPort st
 
 // Validation methods
 
-func (va ValidationAuthorityImpl) validateSimpleHTTP(identifier core.AcmeIdentifier, input core.Challenge, accountKey jose.JsonWebKey) (core.Challenge, error) {
+func (va *ValidationAuthorityImpl) validateSimpleHTTP(identifier core.AcmeIdentifier, input core.Challenge) (core.Challenge, error) {
 	challenge := input
 
 	if identifier.Type != core.IdentifierDNS {
@@ -222,7 +218,7 @@ func (va ValidationAuthorityImpl) validateSimpleHTTP(identifier core.AcmeIdentif
 	portString := fmt.Sprintf("%d", port)
 	hostPort := net.JoinHostPort(host, portString)
 
-	url := url.URL{
+	url := &url.URL{
 		Scheme: scheme,
 		Host:   hostPort,
 		Path:   fmt.Sprintf(".well-known/acme-challenge/%s", challenge.Token),
@@ -361,7 +357,7 @@ func (va ValidationAuthorityImpl) validateSimpleHTTP(identifier core.AcmeIdentif
 		"token": challenge.Token,
 		"tls":   (challenge.TLS == nil) || *challenge.TLS,
 	}
-	err = verifyValidationJWS(parsedJws, &accountKey, target)
+	err = verifyValidationJWS(parsedJws, challenge.AccountKey, target)
 	if err != nil {
 		va.log.Debug(err.Error())
 		challenge.Status = core.StatusInvalid
@@ -376,7 +372,7 @@ func (va ValidationAuthorityImpl) validateSimpleHTTP(identifier core.AcmeIdentif
 	return challenge, nil
 }
 
-func (va ValidationAuthorityImpl) validateDvsni(identifier core.AcmeIdentifier, input core.Challenge, accountKey jose.JsonWebKey) (core.Challenge, error) {
+func (va *ValidationAuthorityImpl) validateDvsni(identifier core.AcmeIdentifier, input core.Challenge) (core.Challenge, error) {
 	challenge := input
 
 	if identifier.Type != "dns" {
@@ -396,7 +392,7 @@ func (va ValidationAuthorityImpl) validateDvsni(identifier core.AcmeIdentifier, 
 		"type":  core.ChallengeTypeDVSNI,
 		"token": challenge.Token,
 	}
-	err := verifyValidationJWS((*jose.JsonWebSignature)(challenge.Validation), &accountKey, target)
+	err := verifyValidationJWS(challenge.Validation, challenge.AccountKey, target)
 	if err != nil {
 		va.log.Debug(err.Error())
 		challenge.Status = core.StatusInvalid
@@ -497,11 +493,11 @@ func parseHTTPConnError(err error) core.ProblemType {
 	return core.ConnectionProblem
 }
 
-func (va ValidationAuthorityImpl) validateProofOfPosession(identifier core.AcmeIdentifier, input core.Challenge, accountKey jose.JsonWebKey) (core.Challenge, error) {
-
+func (va ValidationAuthorityImpl) validateProofOfPosession(identifier core.AcmeIdentifier, input core.Challenge) (core.Challenge, error) {
+	return core.Challenge{}, fmt.Errorf("Proof of Posession challenges not yet implemented")
 }
 
-func (va ValidationAuthorityImpl) validateDNS(identifier core.AcmeIdentifier, input core.Challenge, accountKey jose.JsonWebKey) (core.Challenge, error) {
+func (va ValidationAuthorityImpl) validateDNS(identifier core.AcmeIdentifier, input core.Challenge) (core.Challenge, error) {
 	challenge := input
 
 	if identifier.Type != core.IdentifierDNS {
@@ -521,7 +517,7 @@ func (va ValidationAuthorityImpl) validateDNS(identifier core.AcmeIdentifier, in
 		"type":  core.ChallengeTypeDNS,
 		"token": challenge.Token,
 	}
-	err := verifyValidationJWS((*jose.JsonWebSignature)(challenge.Validation), &accountKey, target)
+	err := verifyValidationJWS(challenge.Validation, challenge.AccountKey, target)
 	if err != nil {
 		va.log.Debug(err.Error())
 		challenge.Status = core.StatusInvalid
@@ -561,7 +557,7 @@ func (va ValidationAuthorityImpl) validateDNS(identifier core.AcmeIdentifier, in
 
 // Overall validation process
 
-func (va ValidationAuthorityImpl) validate(authz core.Authorization, challengeIndex int, accountKey jose.JsonWebKey) {
+func (va *ValidationAuthorityImpl) validate(authz core.Authorization, challengeIndex int) {
 	logEvent := verificationRequestEvent{
 		ID:          authz.ID,
 		Requester:   authz.RegistrationID,
@@ -579,13 +575,13 @@ func (va ValidationAuthorityImpl) validate(authz core.Authorization, challengeIn
 
 		switch authz.Challenges[challengeIndex].Type {
 		case core.ChallengeTypeSimpleHTTP:
-			authz.Challenges[challengeIndex], err = va.validateSimpleHTTP(authz.Identifier, authz.Challenges[challengeIndex], accountKey)
+			authz.Challenges[challengeIndex], err = va.validateSimpleHTTP(authz.Identifier, authz.Challenges[challengeIndex])
 		case core.ChallengeTypeDVSNI:
-			authz.Challenges[challengeIndex], err = va.validateDvsni(authz.Identifier, authz.Challenges[challengeIndex], accountKey)
+			authz.Challenges[challengeIndex], err = va.validateDvsni(authz.Identifier, authz.Challenges[challengeIndex])
 		case core.ChallengeTypeDNS:
-			authz.Challenges[challengeIndex], err = va.validateDNS(authz.Identifier, authz.Challenges[challengeIndex], accountKey)
+			authz.Challenges[challengeIndex], err = va.validateDNS(authz.Identifier, authz.Challenges[challengeIndex])
 		case core.ChallengeTypeProofOfPosession:
-			authz.Challenges[challengeIndex], err = va.validateProofOfPosession(authz.Identifier, authz.Challenges[challengeIndex], accountKey)
+			authz.Challenges[challengeIndex], err = va.validateProofOfPosession(authz.Identifier, authz.Challenges[challengeIndex])
 		}
 
 		if err != nil {
@@ -609,8 +605,8 @@ func (va ValidationAuthorityImpl) validate(authz core.Authorization, challengeIn
 }
 
 // UpdateValidations runs the validate() method asynchronously using goroutines.
-func (va ValidationAuthorityImpl) UpdateValidations(authz core.Authorization, challengeIndex int, accountKey jose.JsonWebKey) error {
-	go va.validate(authz, challengeIndex, accountKey)
+func (va *ValidationAuthorityImpl) UpdateValidations(authz core.Authorization, challengeIndex int) error {
+	go va.validate(authz, challengeIndex)
 	return nil
 }
 

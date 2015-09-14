@@ -36,11 +36,11 @@ type challModel struct {
 	Status           core.AcmeStatus `db:"status"`
 	Error            []byte          `db:"error"`
 	Validated        *time.Time      `db:"validated"`
-	URI              string          `db:"uri"`
 	Token            string          `db:"token"`
 	TLS              *bool           `db:"tls"`
 	Validation       []byte          `db:"validation"`
 	ValidationRecord []byte          `db:"validationRecord"`
+	AccountKey       []byte          `db:"accountKey"`
 	CertificateIDs   []byte          `db:"certificateIDs"`
 
 	LockCol int64
@@ -85,13 +85,13 @@ func modelToRegistration(rm *regModel) (core.Registration, error) {
 
 func challengeToModel(c *core.Challenge, authID string) (*challModel, error) {
 	cm := challModel{
+		ID:              c.ID,
 		AuthorizationID: authID,
 		Type:            c.Type,
 		Status:          c.Status,
 		Validated:       c.Validated,
 		Token:           c.Token,
 		TLS:             c.TLS,
-		CertificateIDs:  c.CertificateIDs,
 	}
 	if c.Validation != nil {
 		cm.Validation = []byte(c.Validation.FullSerialize())
@@ -109,12 +109,6 @@ func challengeToModel(c *core.Challenge, authID string) (*challModel, error) {
 		}
 		cm.Error = errJSON
 	}
-	if c.URI != nil {
-		if len(c.URI.String()) > 255 {
-			return nil, fmt.Errorf("URI is too long to store in the database")
-		}
-		cm.URI = c.URI.String()
-	}
 	if len(c.ValidationRecord) > 0 {
 		vrJSON, err := json.Marshal(c.ValidationRecord)
 		if err != nil {
@@ -125,31 +119,27 @@ func challengeToModel(c *core.Challenge, authID string) (*challModel, error) {
 		}
 		cm.ValidationRecord = vrJSON
 	}
-	if c.CertificateIDs != nil {
-		certIDJSON, err := json.Marshal(c.CertificateIDs)
+	if c.AccountKey != nil {
+		akJSON, err := json.Marshal(c.AccountKey)
 		if err != nil {
 			return nil, err
 		}
-		cm.CertificateIDs = certIDJSON
+		if len(akJSON) > mediumBlobSize {
+			return nil, fmt.Errorf("Account key object is too large to store in the database")
+		}
+		cm.AccountKey = akJSON
 	}
 	return &cm, nil
 }
 
 func modelToChallenge(cm *challModel) (core.Challenge, error) {
 	c := core.Challenge{
+		ID:             cm.ID,
 		Type:           cm.Type,
 		Status:         cm.Status,
 		Validated:      cm.Validated,
 		Token:          cm.Token,
 		TLS:            cm.TLS,
-		CertificateIDs: cm.CertificateIDs,
-	}
-	if len(cm.URI) > 0 {
-		uri, err := core.ParseAcmeURL(cm.URI)
-		if err != nil {
-			return core.Challenge{}, err
-		}
-		c.URI = uri
 	}
 	if len(cm.Validation) > 0 {
 		val, err := jose.ParseSigned(string(cm.Validation))
@@ -173,6 +163,14 @@ func modelToChallenge(cm *challModel) (core.Challenge, error) {
 			return core.Challenge{}, err
 		}
 		c.ValidationRecord = vr
+	}
+	if len(cm.AccountKey) > 0 {
+		var ak jose.JsonWebKey
+		err := json.Unmarshal(cm.AccountKey, &ak)
+		if err != nil {
+			return core.Challenge{}, err
+		}
+		c.AccountKey = &ak
 	}
 	return c, nil
 }
