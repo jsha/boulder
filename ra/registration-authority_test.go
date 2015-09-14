@@ -181,7 +181,7 @@ func initAuthorities(t *testing.T) (*DummyValidationAuthority, *sa.SQLStorageAut
 	}
 	signer, _ := local.NewSigner(caKey, caCert, x509.SHA256WithRSA, basicPolicy)
 	ocspSigner, _ := ocsp.NewSigner(caCert, caCert, caKey, time.Hour)
-	pub, _ := publisher.NewPublisherImpl(nil)
+	pub, _ := publisher.NewPublisherImpl(publisher.CTConfig{})
 	paDbMap, err := sa.NewDbMap(paDBConnStr)
 	if err != nil {
 		t.Fatalf("Failed to create dbMap: %s", err)

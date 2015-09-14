@@ -89,74 +89,70 @@ const (
 
 // PublisherImpl defines a Publisher
 type PublisherImpl struct {
-	log *blog.AuditLogger
-	CT  *CTConfig
-	SA  core.StorageAuthority
+	log               *blog.AuditLogger
+	client            *http.Client
+	submissionBackoff time.Duration
+	submissionRetries int
+	issuerBundle      []string
+	ctLogs            []LogDescription
+
+	SA core.StorageAuthority
 }
 
 // NewPublisherImpl creates a Publisher that will submit certificates
 // to any CT logs configured in CTConfig
-func NewPublisherImpl(ctConfig *CTConfig) (pub PublisherImpl, err error) {
+func NewPublisherImpl(ctConfig CTConfig) (pub PublisherImpl, err error) {
 	logger := blog.GetAuditLogger()
 	logger.Notice("Publisher Authority Starting")
-	pub.log = logger
 
-	if ctConfig == nil {
-		err = fmt.Errorf("No CT configuration provided")
-		return
-	}
 	if ctConfig.BundleFilename == "" {
 		err = fmt.Errorf("No CT submission bundle provided")
 		return
 	}
-	pub.CT = ctConfig
 	bundle, err := core.LoadCertBundle(ctConfig.BundleFilename)
 	if err != nil {
 		return
 	}
 	for _, cert := range bundle {
-		pub.CT.IssuerBundle = append(pub.CT.IssuerBundle, base64.StdEncoding.EncodeToString(cert.Raw))
+		pub.issuerBundle = append(pub.issuerBundle, base64.StdEncoding.EncodeToString(cert.Raw))
 	}
 	ctBackoff, err := time.ParseDuration(ctConfig.SubmissionBackoffString)
 	if err != nil {
 		return
 	}
-	pub.CT.SubmissionBackoff = ctBackoff
+
+	pub.log = logger
+	pub.client = &http.Client{}
+	pub.submissionBackoff = ctBackoff
+	pub.submissionRetries = ctConfig.SubmissionRetries
+	pub.ctLogs = ctConfig.Logs
 
 	return
 }
 
-func (pub *PublisherImpl) submitToCTLog(serial string, jsonSubmission []byte, log LogDescription, client http.Client) error {
+func (pub *PublisherImpl) submitToCTLog(serial string, jsonSubmission []byte, log LogDescription) error {
 	done := false
-	var retries int
 	var sct core.SignedCertificateTimestamp
-	for !done && retries <= pub.CT.SubmissionRetries {
-		resp, err := postJSON(&client, fmt.Sprintf("%s%s", log.URI, "/ct/v1/add-chain"), jsonSubmission, &sct)
+	backoff := pub.submissionBackoff
+	var retries int
+	for retries = 0; retries <= pub.submissionRetries; retries++ {
+		if retries > 0 {
+			time.Sleep(backoff)
+		}
+		resp, err := postJSON(pub.client, fmt.Sprintf("%s%s", log.URI, "/ct/v1/add-chain"), jsonSubmission, &sct)
 		if err != nil {
 			// Retry the request, log the error
 			// AUDIT[ Error Conditions ] 9cc4d537-8534-4970-8665-4b382abe82f3
 			pub.log.AuditErr(fmt.Errorf("Error POSTing JSON to CT log submission endpoint [%s]: %s", log.URI, err))
-			if retries >= pub.CT.SubmissionRetries {
-				break
-			}
-			retries++
-			time.Sleep(pub.CT.SubmissionBackoff)
 			continue
 		} else {
 			if resp.StatusCode == http.StatusRequestTimeout || resp.StatusCode == http.StatusServiceUnavailable {
 				// Retry the request after either 10 seconds or the period specified
 				// by the Retry-After header
-				backoff := pub.CT.SubmissionBackoff
-				if retryAfter := resp.Header.Get("Retry-After"); retryAfter != "" {
-					if seconds, err := strconv.Atoi(retryAfter); err != nil {
-						backoff = time.Second * time.Duration(seconds)
-					}
+				backoff = pub.submissionBackoff
+				if seconds, err := strconv.Atoi(resp.Header.Get("Retry-After")); err != nil {
+					backoff = time.Second * time.Duration(seconds)
 				}
-				if retries >= pub.CT.SubmissionRetries {
-					break
-				}
-				retries++
-				time.Sleep(backoff)
 				continue
 			} else if resp.StatusCode != http.StatusOK {
 				// Not something we expect to happen, set error, break loop and log
@@ -166,10 +162,9 @@ func (pub *PublisherImpl) submitToCTLog(serial string, jsonSubmission []byte, lo
 				break
 			}
 		}
-
-		done = true
 		break
 	}
+
 	if !done {
 		pub.log.Warning(fmt.Sprintf(
 			"Unable to submit certificate to CT log [Serial: %s, Log URI: %s, Retries: %d]",
@@ -217,10 +212,6 @@ func (pub *PublisherImpl) submitToCTLog(serial string, jsonSubmission []byte, lo
 // SubmitToCT will submit the certificate represented by certDER to any CT
 // logs configured in pub.CT.Logs
 func (pub *PublisherImpl) SubmitToCT(der []byte) error {
-	if pub.CT == nil {
-		return nil
-	}
-
 	cert, err := x509.ParseCertificate(der)
 	if err != nil {
 		pub.log.Err(fmt.Sprintf("Unable to parse certificate, %s", err))
@@ -229,16 +220,15 @@ func (pub *PublisherImpl) SubmitToCT(der []byte) error {
 
 	submission := ctSubmissionRequest{Chain: []string{base64.StdEncoding.EncodeToString(cert.Raw)}}
 	// Add all intermediate certificates needed for submission
-	submission.Chain = append(submission.Chain, pub.CT.IssuerBundle...)
-	client := http.Client{}
+	submission.Chain = append(submission.Chain, pub.issuerBundle...)
 	jsonSubmission, err := json.Marshal(submission)
 	if err != nil {
 		pub.log.Err(fmt.Sprintf("Unable to marshal CT submission, %s", err))
 		return err
 	}
 
-	for _, ctLog := range pub.CT.Logs {
-		err = pub.submitToCTLog(core.SerialToString(cert.SerialNumber), jsonSubmission, ctLog, client)
+	for _, ctLog := range pub.ctLogs {
+		err = pub.submitToCTLog(core.SerialToString(cert.SerialNumber), jsonSubmission, ctLog)
 		if err != nil {
 			pub.log.Err(err.Error())
 			continue

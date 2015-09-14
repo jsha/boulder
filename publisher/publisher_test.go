@@ -139,11 +139,11 @@ func logSrv(t *testing.T, stopChan, waitChan chan bool) {
 func TestNewPublisherImpl(t *testing.T) {
 	// Allowed
 	ctConf := CTConfig{SubmissionBackoffString: "0s", BundleFilename: issuerPath}
-	_, err := NewPublisherImpl(&ctConf)
+	_, err := NewPublisherImpl(ctConf)
 	test.AssertNotError(t, err, "Couldn't create new Publisher")
 
 	ctConf = CTConfig{Logs: []LogDescription{LogDescription{URI: "http://localhost:8080/ct/v1/add-chain"}}, SubmissionBackoffString: "0s", BundleFilename: issuerPath}
-	_, err = NewPublisherImpl(&ctConf)
+	_, err = NewPublisherImpl(ctConf)
 	test.AssertNotError(t, err, "Couldn't create new Publisher")
 }
 
@@ -178,8 +178,8 @@ func TestSubmitToCT(t *testing.T) {
 
 	intermediatePEM, _ := pem.Decode([]byte(testIntermediate))
 
-	pub, err := NewPublisherImpl(&CTConfig{Logs: []LogDescription{LogDescription{URI: "http://localhost:8080/ct/v1/add-chain"}}, SubmissionBackoffString: "0s", BundleFilename: issuerPath})
-	pub.CT.IssuerBundle = append(pub.CT.IssuerBundle, base64.StdEncoding.EncodeToString(intermediatePEM.Bytes))
+	pub, err := NewPublisherImpl(CTConfig{Logs: []LogDescription{LogDescription{URI: "http://localhost:8080/ct/v1/add-chain"}}, SubmissionBackoffString: "0s", BundleFilename: issuerPath})
+	pub.issuerBundle = append(pub.issuerBundle, base64.StdEncoding.EncodeToString(intermediatePEM.Bytes))
 	pub.SA = &mocks.MockSA{}
 	test.AssertNotError(t, err, "Couldn't create new Publisher")
 
@@ -192,7 +192,7 @@ func TestSubmitToCT(t *testing.T) {
 	test.AssertNotError(t, err, "Certificate submission failed")
 
 	// No Intermediate
-	pub.CT.IssuerBundle = []string{}
+	pub.issuerBundle = []string{}
 	err = pub.SubmitToCT(leaf.Raw)
 	test.AssertNotError(t, err, "Certificate submission failed")
 }
