@@ -7,8 +7,8 @@ package core
 
 import (
 	"encoding/json"
-	"net"
 	"fmt"
+	"net"
 	"testing"
 
 	"github.com/letsencrypt/boulder/Godeps/_workspace/src/github.com/letsencrypt/go-jose"

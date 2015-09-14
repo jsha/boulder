@@ -134,12 +134,12 @@ func challengeToModel(c *core.Challenge, authID string) (*challModel, error) {
 
 func modelToChallenge(cm *challModel) (core.Challenge, error) {
 	c := core.Challenge{
-		ID:             cm.ID,
-		Type:           cm.Type,
-		Status:         cm.Status,
-		Validated:      cm.Validated,
-		Token:          cm.Token,
-		TLS:            cm.TLS,
+		ID:        cm.ID,
+		Type:      cm.Type,
+		Status:    cm.Status,
+		Validated: cm.Validated,
+		Token:     cm.Token,
+		TLS:       cm.TLS,
 	}
 	if len(cm.Validation) > 0 {
 		val, err := jose.ParseSigned(string(cm.Validation))

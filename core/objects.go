@@ -338,11 +338,6 @@ func proofOfPosessionIsSane(ch Challenge, completed bool) bool {
 // simpleHTTPIsSane returns true if a SimpleHTTP challenge is sane.
 // Precondition: challenge type field is ChallengeTypeSimpleHTTP
 func simpleHTTPIsSane(ch Challenge, completed bool) bool {
-	// check extra fields aren't used
-	if ch.Validation != nil {
-		return false
-	}
-
 	if completed && ch.TLS == nil {
 		return false
 	}
