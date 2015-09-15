@@ -13,7 +13,11 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"net/http/httptest"
+	"net/url"
+	"strconv"
 	"testing"
+	"time"
 
 	"github.com/letsencrypt/boulder/core"
 	"github.com/letsencrypt/boulder/mocks"
@@ -103,11 +107,25 @@ OY8B7wwvZTLzU6WWs781TJXx2CE04PneeeArLpVLkiGIWjk=
 
 const issuerPath = "../test/test-ca.pem"
 
-func logSrv(t *testing.T, stopChan, waitChan chan bool) {
-	// Reset any existing handlers
-	http.DefaultServeMux = http.NewServeMux()
+func getPort(hs *httptest.Server) (int, error) {
+	url, err := url.Parse(hs.URL)
+	if err != nil {
+		return 0, err
+	}
+	_, portString, err := net.SplitHostPort(url.Host)
+	if err != nil {
+		return 0, err
+	}
+	port, err := strconv.ParseInt(portString, 10, 64)
+	if err != nil {
+		return 0, err
+	}
+	return int(port), nil
+}
 
-	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+func logSrv() *httptest.Server {
+	m := http.NewServeMux()
+	m.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		decoder := json.NewDecoder(r.Body)
 		var jsonReq ctSubmissionRequest
 		err := decoder.Decode(&jsonReq)
@@ -120,20 +138,49 @@ func logSrv(t *testing.T, stopChan, waitChan chan bool) {
 		}
 	})
 
-	server := &http.Server{Addr: "localhost:8080"}
-	conn, err := net.Listen("tcp", server.Addr)
-	if err != nil {
-		waitChan <- true
-		t.Fatalf("Couldn't listen on %s: %s", server.Addr, err)
-	}
+	server := httptest.NewUnstartedServer(m)
+	server.Start()
+	return server
+}
 
-	go func() {
-		<-stopChan
-		conn.Close()
-	}()
+func retryableLogSrv(retries int, after *int) *httptest.Server {
+	hits := 0
+	m := http.NewServeMux()
+	m.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		if hits >= retries {
+			fmt.Fprint(w, `{"signature":"BAMASDBGAiEAknaySJVdB3FqG9bUKHgyu7V9AdEabpTc71BELUp6/iECIQDObrkwlQq6Azfj5XOA5E12G/qy/WuRn97z7qMSXXc82Q=="}`)
+		} else {
+			hits++
+			if after != nil {
+				w.Header().Set("Retry-After", fmt.Sprintf("%d", *after))
+			}
+			w.WriteHeader(http.StatusRequestTimeout)
+		}
+	})
 
-	waitChan <- true
-	server.Serve(conn)
+	server := httptest.NewUnstartedServer(m)
+	server.Start()
+	return server
+}
+
+func emptyLogSrv() *httptest.Server {
+	m := http.NewServeMux()
+	m.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		decoder := json.NewDecoder(r.Body)
+		var jsonReq ctSubmissionRequest
+		err := decoder.Decode(&jsonReq)
+		if err != nil {
+			return
+		}
+		// Submissions should always contain at least one cert
+		if len(jsonReq.Chain) >= 1 {
+			fmt.Fprint(w, `{"signature":""}`)
+		}
+	})
+
+	server := httptest.NewUnstartedServer(m)
+	server.Start()
+	return server
 }
 
 func TestNewPublisherImpl(t *testing.T) {
@@ -142,7 +189,7 @@ func TestNewPublisherImpl(t *testing.T) {
 	_, err := NewPublisherImpl(ctConf)
 	test.AssertNotError(t, err, "Couldn't create new Publisher")
 
-	ctConf = CTConfig{Logs: []LogDescription{LogDescription{URI: "http://localhost:8080/ct/v1/add-chain"}}, SubmissionBackoffString: "0s", BundleFilename: issuerPath}
+	ctConf = CTConfig{Logs: []LogDescription{LogDescription{URI: "http://localhost"}}, SubmissionBackoffString: "0s", BundleFilename: issuerPath}
 	_, err = NewPublisherImpl(ctConf)
 	test.AssertNotError(t, err, "Couldn't create new Publisher")
 }
@@ -170,21 +217,19 @@ func TestCheckSignature(t *testing.T) {
 }
 
 func TestSubmitToCT(t *testing.T) {
-	stopChan := make(chan bool, 1)
-	waitChan := make(chan bool, 1)
-	go logSrv(t, stopChan, waitChan)
-	defer func() { stopChan <- true }()
-	<-waitChan
+	server := logSrv()
+	defer server.Close()
+	port, err := getPort(server)
+	test.AssertNotError(t, err, "Failed to get test server port")
 
 	intermediatePEM, _ := pem.Decode([]byte(testIntermediate))
 
-	pub, err := NewPublisherImpl(CTConfig{Logs: []LogDescription{LogDescription{URI: "http://localhost:8080/ct/v1/add-chain"}}, SubmissionBackoffString: "0s", BundleFilename: issuerPath})
+	pub, err := NewPublisherImpl(CTConfig{Logs: []LogDescription{LogDescription{URI: fmt.Sprintf("http://localhost:%d", port)}}, SubmissionBackoffString: "0s", BundleFilename: issuerPath})
 	pub.issuerBundle = append(pub.issuerBundle, base64.StdEncoding.EncodeToString(intermediatePEM.Bytes))
 	pub.SA = &mocks.MockSA{}
 	test.AssertNotError(t, err, "Couldn't create new Publisher")
 
 	leafPEM, _ := pem.Decode([]byte(testLeaf))
-
 	leaf, err := x509.ParseCertificate(leafPEM.Bytes)
 	test.AssertNotError(t, err, "Couldn't parse leafPEM.Bytes")
 
@@ -195,4 +240,165 @@ func TestSubmitToCT(t *testing.T) {
 	pub.issuerBundle = []string{}
 	err = pub.SubmitToCT(leaf.Raw)
 	test.AssertNotError(t, err, "Certificate submission failed")
+}
+
+func TestGoodRetry(t *testing.T) {
+	server := retryableLogSrv(1, nil)
+	defer server.Close()
+	port, err := getPort(server)
+	test.AssertNotError(t, err, "Failed to get test server port")
+
+	intermediatePEM, _ := pem.Decode([]byte(testIntermediate))
+
+	pub, err := NewPublisherImpl(CTConfig{
+		Logs: []LogDescription{LogDescription{URI: fmt.Sprintf("http://localhost:%d", port)}},
+		SubmissionBackoffString: "0s",
+		BundleFilename:          issuerPath,
+		SubmissionRetries:       1,
+	})
+	pub.issuerBundle = append(pub.issuerBundle, base64.StdEncoding.EncodeToString(intermediatePEM.Bytes))
+	pub.SA = &mocks.MockSA{}
+	test.AssertNotError(t, err, "Couldn't create new Publisher")
+
+	leafPEM, _ := pem.Decode([]byte(testLeaf))
+	leaf, err := x509.ParseCertificate(leafPEM.Bytes)
+	test.AssertNotError(t, err, "Couldn't parse leafPEM.Bytes")
+
+	err = pub.SubmitToCT(leaf.Raw)
+	test.AssertNotError(t, err, "Certificate submission failed")
+}
+
+func TestFatalRetry(t *testing.T) {
+	server := retryableLogSrv(1, nil)
+	defer server.Close()
+	port, err := getPort(server)
+	test.AssertNotError(t, err, "Failed to get test server port")
+
+	intermediatePEM, _ := pem.Decode([]byte(testIntermediate))
+
+	pub, err := NewPublisherImpl(CTConfig{
+		Logs: []LogDescription{LogDescription{URI: fmt.Sprintf("http://localhost:%d", port)}},
+		SubmissionBackoffString: "0s",
+		BundleFilename:          issuerPath,
+	})
+	pub.issuerBundle = append(pub.issuerBundle, base64.StdEncoding.EncodeToString(intermediatePEM.Bytes))
+	pub.SA = &mocks.MockSA{}
+	test.AssertNotError(t, err, "Couldn't create new Publisher")
+
+	leafPEM, _ := pem.Decode([]byte(testLeaf))
+	leaf, err := x509.ParseCertificate(leafPEM.Bytes)
+	test.AssertNotError(t, err, "Couldn't parse leafPEM.Bytes")
+
+	err = pub.SubmitToCT(leaf.Raw)
+	test.AssertError(t, err, "Certificate submission succeded")
+}
+
+func TestUnexpectedError(t *testing.T) {
+	intermediatePEM, _ := pem.Decode([]byte(testIntermediate))
+
+	pub, err := NewPublisherImpl(CTConfig{
+		Logs: []LogDescription{LogDescription{URI: "http://localhost"}},
+		SubmissionBackoffString: "0s",
+		BundleFilename:          issuerPath,
+	})
+	pub.issuerBundle = append(pub.issuerBundle, base64.StdEncoding.EncodeToString(intermediatePEM.Bytes))
+	pub.SA = &mocks.MockSA{}
+	test.AssertNotError(t, err, "Couldn't create new Publisher")
+
+	leafPEM, _ := pem.Decode([]byte(testLeaf))
+	leaf, err := x509.ParseCertificate(leafPEM.Bytes)
+	test.AssertNotError(t, err, "Couldn't parse leafPEM.Bytes")
+
+	err = pub.SubmitToCT(leaf.Raw)
+	test.AssertError(t, err, "Certificate submission succeded")
+}
+
+func TestRetryAfter(t *testing.T) {
+	five := 5
+	server := retryableLogSrv(2, &five)
+	defer server.Close()
+	port, err := getPort(server)
+	test.AssertNotError(t, err, "Failed to get test server port")
+
+	intermediatePEM, _ := pem.Decode([]byte(testIntermediate))
+
+	pub, err := NewPublisherImpl(CTConfig{
+		Logs: []LogDescription{LogDescription{URI: fmt.Sprintf("http://localhost:%d", port)}},
+		SubmissionBackoffString: "0s",
+		BundleFilename:          issuerPath,
+		SubmissionRetries:       2,
+	})
+	pub.issuerBundle = append(pub.issuerBundle, base64.StdEncoding.EncodeToString(intermediatePEM.Bytes))
+	pub.SA = &mocks.MockSA{}
+	test.AssertNotError(t, err, "Couldn't create new Publisher")
+
+	leafPEM, _ := pem.Decode([]byte(testLeaf))
+	leaf, err := x509.ParseCertificate(leafPEM.Bytes)
+	test.AssertNotError(t, err, "Couldn't parse leafPEM.Bytes")
+
+	startedWaiting := time.Now()
+	err = pub.SubmitToCT(leaf.Raw)
+	test.AssertNotError(t, err, "Certificate submission failed")
+	test.Assert(t, time.Since(startedWaiting) >= 10*time.Second, "Submitter retried submission too fast")
+}
+
+func TestMultiLog(t *testing.T) {
+	srvA := logSrv()
+	defer srvA.Close()
+	srvB := logSrv()
+	defer srvB.Close()
+	portA, err := getPort(srvA)
+	test.AssertNotError(t, err, "Failed to get test server port")
+	portB, err := getPort(srvB)
+	test.AssertNotError(t, err, "Failed to get test server port")
+
+	intermediatePEM, _ := pem.Decode([]byte(testIntermediate))
+
+	pub, err := NewPublisherImpl(CTConfig{
+		Logs: []LogDescription{
+			LogDescription{URI: fmt.Sprintf("http://localhost:%d", portA)},
+			LogDescription{URI: fmt.Sprintf("http://localhost:%d", portB)},
+		},
+		SubmissionBackoffString: "0s",
+		BundleFilename:          issuerPath,
+		SubmissionRetries:       1,
+	})
+	pub.issuerBundle = append(pub.issuerBundle, base64.StdEncoding.EncodeToString(intermediatePEM.Bytes))
+	pub.SA = &mocks.MockSA{}
+	test.AssertNotError(t, err, "Couldn't create new Publisher")
+
+	leafPEM, _ := pem.Decode([]byte(testLeaf))
+	leaf, err := x509.ParseCertificate(leafPEM.Bytes)
+	test.AssertNotError(t, err, "Couldn't parse leafPEM.Bytes")
+
+	err = pub.SubmitToCT(leaf.Raw)
+	test.AssertNotError(t, err, "Certificate submission failed")
+}
+
+func TestBadServer(t *testing.T) {
+	srv := emptyLogSrv()
+	defer srv.Close()
+	port, err := getPort(srv)
+	test.AssertNotError(t, err, "Failed to get test server port")
+
+	intermediatePEM, _ := pem.Decode([]byte(testIntermediate))
+
+	pub, err := NewPublisherImpl(CTConfig{
+		Logs: []LogDescription{
+			LogDescription{URI: fmt.Sprintf("http://localhost:%d", port)},
+		},
+		SubmissionBackoffString: "0s",
+		BundleFilename:          issuerPath,
+		SubmissionRetries:       1,
+	})
+	pub.issuerBundle = append(pub.issuerBundle, base64.StdEncoding.EncodeToString(intermediatePEM.Bytes))
+	pub.SA = &mocks.MockSA{}
+	test.AssertNotError(t, err, "Couldn't create new Publisher")
+
+	leafPEM, _ := pem.Decode([]byte(testLeaf))
+	leaf, err := x509.ParseCertificate(leafPEM.Bytes)
+	test.AssertNotError(t, err, "Couldn't parse leafPEM.Bytes")
+
+	err = pub.SubmitToCT(leaf.Raw)
+	test.AssertError(t, err, "Certificate submission failed")
 }

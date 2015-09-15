@@ -131,28 +131,31 @@ func NewPublisherImpl(ctConfig CTConfig) (pub PublisherImpl, err error) {
 }
 
 func (pub *PublisherImpl) submitToCTLog(serial string, jsonSubmission []byte, log LogDescription) error {
-	done := false
 	var sct core.SignedCertificateTimestamp
 	backoff := pub.submissionBackoff
+	done := false
 	var retries int
 	for retries = 0; retries <= pub.submissionRetries; retries++ {
 		if retries > 0 {
-			time.Sleep(backoff)
 		}
 		resp, err := postJSON(pub.client, fmt.Sprintf("%s%s", log.URI, "/ct/v1/add-chain"), jsonSubmission, &sct)
 		if err != nil {
 			// Retry the request, log the error
 			// AUDIT[ Error Conditions ] 9cc4d537-8534-4970-8665-4b382abe82f3
 			pub.log.AuditErr(fmt.Errorf("Error POSTing JSON to CT log submission endpoint [%s]: %s", log.URI, err))
+			time.Sleep(backoff)
 			continue
 		} else {
 			if resp.StatusCode == http.StatusRequestTimeout || resp.StatusCode == http.StatusServiceUnavailable {
 				// Retry the request after either 10 seconds or the period specified
 				// by the Retry-After header
 				backoff = pub.submissionBackoff
-				if seconds, err := strconv.Atoi(resp.Header.Get("Retry-After")); err != nil {
+				if seconds, err := strconv.Atoi(resp.Header.Get("Retry-After")); err == nil {
 					backoff = time.Second * time.Duration(seconds)
+				} else {
+					fmt.Println(err)
 				}
+				time.Sleep(backoff)
 				continue
 			} else if resp.StatusCode != http.StatusOK {
 				// Not something we expect to happen, set error, break loop and log
@@ -161,8 +164,9 @@ func (pub *PublisherImpl) submitToCTLog(serial string, jsonSubmission []byte, lo
 				pub.log.AuditErr(fmt.Errorf("Unexpected status code returned from CT log submission endpoint [%s]: Unexpected status code [%d]", log.URI, resp.StatusCode))
 				break
 			}
+			done = true
+			break
 		}
-		break
 	}
 
 	if !done {
@@ -235,7 +239,7 @@ func (pub *PublisherImpl) SubmitToCT(der []byte) error {
 		}
 	}
 
-	return nil
+	return err
 }
 
 func postJSON(client *http.Client, uri string, data []byte, respObj interface{}) (*http.Response, error) {
@@ -255,15 +259,16 @@ func postJSON(client *http.Client, uri string, data []byte, respObj interface{})
 	}
 	defer resp.Body.Close()
 
-	body, err := ioutil.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("Failed to read response body, %s", err)
-	}
+	if resp.StatusCode == http.StatusOK {
+		body, err := ioutil.ReadAll(resp.Body)
+		if err != nil {
+			return nil, fmt.Errorf("Failed to read response body, %s", err)
+		}
 
-	err = json.Unmarshal(body, respObj)
-	if err != nil {
-		return nil, fmt.Errorf("Failed to unmarshal SCT receipt, %s", err)
+		err = json.Unmarshal(body, respObj)
+		if err != nil {
+			return nil, fmt.Errorf("Failed to unmarshal SCT receipt, %s", err)
+		}
 	}
-
 	return resp, nil
 }

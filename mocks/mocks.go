@@ -304,6 +304,9 @@ func (sa *MockSA) GetSCTReceipt(serial string, logID string) (sct core.SignedCer
 
 // AddSCTReceipt is a mock
 func (sa *MockSA) AddSCTReceipt(sct core.SignedCertificateTimestamp) (err error) {
+	if sct.Signature == nil {
+		err = fmt.Errorf("Bad times")
+	}
 	return
 }
 
