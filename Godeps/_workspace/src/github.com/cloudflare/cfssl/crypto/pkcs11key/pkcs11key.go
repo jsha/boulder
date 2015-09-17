@@ -41,9 +41,18 @@ var hashPrefixes = map[crypto.Hash][]byte{
 // Each one will have its own session and can be used concurrently. Note that
 // some smartcards like the Yubikey Neo do not support multiple simultaneous
 // sessions and will error out on creation of the second PKCS11Key object.
+//
+// Note: For parallel usage, it is *highly* recommended that you create all your
+// PKCS11Key objects serially, on your main thread, checking for errors each
+// time, and then farm them out for use by different goroutines. If you fail to
+// do this, your application may attempt to login repeatedly with an incorrect
+// PIN, locking the PKCS#11 token.
 type PKCS11Key struct {
 	// The PKCS#11 library to use
 	module *pkcs11.Ctx
+
+	// The path to the PKCS#11 library
+	modulePath string
 
 	// The name of the slot to be used, or "" to use any slot
 	slotDescription string
@@ -66,33 +75,56 @@ type PKCS11Key struct {
 	sessionMu sync.Mutex
 }
 
-// LoadModule loads the give PKCS#11 module (shared library). It should be
-// called exactly once per process, and the return value should be passed to
-// each call to New.
-func Initialize(modulePath string) (*pkcs11.Ctx, error) {
-	context := pkcs11.New(modulePath)
+var modules map[string]*pkcs11.Ctx = make(map[string]*pkcs11.Ctx);
+var modulesMu sync.Mutex;
 
-	if context == nil {
+// initialize loads the given PKCS#11 module (shared library) if it is not
+// already loaded. It's an error to load a PKCS#11 module multiple times, so we
+// maintain a map of loaded modules. Note that there is no facility yet to
+// unload a module ("finalize" in PKCS#11 parlance). In general, modules will
+// be unloaded at the end of the process.  The only place where you are likely
+// to need to explicitly unload module is if you fork your process after a
+// PKCS11Key has already been created, and the child process also needs to use
+// that module.
+func initialize(modulePath string) (*pkcs11.Ctx, error) {
+	modulesMu.Lock()
+	defer modulesMu.Unlock()
+	module, ok := modules[modulePath]
+	if ok {
+		return module, nil
+	}
+
+	module = pkcs11.New(modulePath)
+
+	if module == nil {
 		return nil, fmt.Errorf("unable to load PKCS#11 module")
 	}
 
-	err := context.Initialize()
-	return context, err
-}
+	err := module.Initialize()
+	if err != nil {
+		return nil, err
+	}
 
-// Finalize cleans up PKCS#11-related state. It is mostly useful when forking
-// off child processes where the parent process had already called Initialize.
-// See ftp://ftp.rsasecurity.com/pub/pkcs/pkcs-11/v2-30/pkcs-11v2-30b-d6.pdf,
-// section 6.6.
-func Finalize(context *pkcs11.Ctx) error {
-	return context.Finalize()
+	modules[modulePath] = module
+
+	return module, nil
 }
 
 // New instantiates a new handle to a PKCS #11-backed key.
-func New(context *pkcs11.Ctx, slotDescription, tokenLabel, pin, privateKeyLabel string) (ps *PKCS11Key, err error) {
+func New(modulePath, slotDescription, tokenLabel, pin, privateKeyLabel string) (ps *PKCS11Key, err error) {
+	module, err := initialize(modulePath)
+	if err != nil {
+		return
+	}
+	if module == nil {
+		err = fmt.Errorf("nil module")
+		return
+	}
+
 	// Initialize a partial key
 	ps = &PKCS11Key{
-		module:          context,
+		module:          module,
+		modulePath:      modulePath,
 		slotDescription: slotDescription,
 		tokenLabel:      tokenLabel,
 		pin:             pin,
@@ -108,14 +140,14 @@ func New(context *pkcs11.Ctx, slotDescription, tokenLabel, pin, privateKeyLabel 
 	ps.session = &session
 
 	// Fetch the private key by its label
-	privateKeyHandle, err := getPrivateKey(context, session, privateKeyLabel)
+	privateKeyHandle, err := getPrivateKey(module, session, privateKeyLabel)
 	if err != nil {
 		ps.module.CloseSession(session)
 		return
 	}
 	ps.privateKeyHandle = privateKeyHandle
 
-	publicKey, err := getPublicKey(context, session, privateKeyHandle)
+	publicKey, err := getPublicKey(module, session, privateKeyHandle)
 	if err != nil {
 		ps.module.CloseSession(session)
 		return
@@ -125,20 +157,20 @@ func New(context *pkcs11.Ctx, slotDescription, tokenLabel, pin, privateKeyLabel 
 	return
 }
 
-func getPrivateKey(context *pkcs11.Ctx, session pkcs11.SessionHandle, label string) (pkcs11.ObjectHandle, error) {
+func getPrivateKey(module *pkcs11.Ctx, session pkcs11.SessionHandle, label string) (pkcs11.ObjectHandle, error) {
 	var noHandle pkcs11.ObjectHandle
 	template := []*pkcs11.Attribute{
 		pkcs11.NewAttribute(pkcs11.CKA_CLASS, pkcs11.CKO_PRIVATE_KEY),
 		pkcs11.NewAttribute(pkcs11.CKA_LABEL, label),
 	}
-	if err := context.FindObjectsInit(session, template); err != nil {
+	if err := module.FindObjectsInit(session, template); err != nil {
 		return noHandle, err
 	}
-	objs, _, err := context.FindObjects(session, 2)
+	objs, _, err := module.FindObjects(session, 2)
 	if err != nil {
 		return noHandle, err
 	}
-	if err = context.FindObjectsFinal(session); err != nil {
+	if err = module.FindObjectsFinal(session); err != nil {
 		return noHandle, err
 	}
 
@@ -150,13 +182,13 @@ func getPrivateKey(context *pkcs11.Ctx, session pkcs11.SessionHandle, label stri
 
 // Get the public key matching a private key
 // TODO: Add support for non-RSA keys, switching on CKA_KEY_TYPE
-func getPublicKey(context *pkcs11.Ctx, session pkcs11.SessionHandle, privateKeyHandle pkcs11.ObjectHandle) (rsa.PublicKey, error) {
+func getPublicKey(module *pkcs11.Ctx, session pkcs11.SessionHandle, privateKeyHandle pkcs11.ObjectHandle) (rsa.PublicKey, error) {
 	var noKey rsa.PublicKey
 	template := []*pkcs11.Attribute{
 		pkcs11.NewAttribute(pkcs11.CKA_MODULUS, nil),
 		pkcs11.NewAttribute(pkcs11.CKA_PUBLIC_EXPONENT, nil),
 	}
-	attr, err := context.GetAttributeValue(session, privateKeyHandle, template)
+	attr, err := module.GetAttributeValue(session, privateKeyHandle, template)
 	if err != nil {
 		return noKey, err
 	}

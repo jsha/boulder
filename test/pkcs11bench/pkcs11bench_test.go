@@ -10,23 +10,12 @@ import (
 	"time"
 
 	"github.com/letsencrypt/boulder/Godeps/_workspace/src/github.com/cloudflare/cfssl/crypto/pkcs11key"
-	"github.com/letsencrypt/boulder/Godeps/_workspace/src/github.com/miekg/pkcs11"
 )
 
 var module = flag.String("module", "", "Path to PKCS11 module")
 var tokenLabel = flag.String("tokenLabel", "", "Token label")
 var pin = flag.String("pin", "", "PIN")
 var privateKeyLabel = flag.String("privateKeyLabel", "", "Private key label")
-
-var context *pkcs11.Ctx
-func init() {
-	flag.Parse()
-	var err error
-	context, err = pkcs11key.Initialize(*module)
-	if err != nil {
-		panic("Failed to init PKCS11 module: " + err.Error())
-	}
-}
 
 // BenchmarkPKCS11 signs a certificate repeatedly using a PKCS11 token and
 // measures speed. To run:
@@ -62,7 +51,7 @@ func BenchmarkPKCS11(b *testing.B) {
 	b.ResetTimer()
 
 	b.RunParallel(func(pb *testing.PB) {
-		p, err := pkcs11key.New(context, "", *tokenLabel, *pin, *privateKeyLabel)
+		p, err := pkcs11key.New(*module, "", *tokenLabel, *pin, *privateKeyLabel)
 		if err != nil {
 			b.Fatal(err)
 			return
