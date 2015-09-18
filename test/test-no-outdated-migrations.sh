@@ -7,7 +7,7 @@ fi
 source test/db-common.sh
 
 NEW_FILES_LIST=$(mktemp)
-#trap 'rm ${NEW_FILES_LIST}' EXIT
+trap 'rm ${NEW_FILES_LIST}' EXIT
 
 for svc in $SERVICES; do
   for dbenv in $DBENVS; do
