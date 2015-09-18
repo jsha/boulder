@@ -1,6 +1,4 @@
 # Common variables used by Goose-related scripts.
-set -o errexit
-set -o xtrace
 
 function die() {
   if [ ! -z "$1" ]; then
