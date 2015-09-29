@@ -41,6 +41,9 @@ branches:
 before_install:
   - source test/travis-before-install.sh
 
+install:
+  - true
+
 env:
   global:
     - LETSENCRYPT_PATH=$HOME/letsencrypt
