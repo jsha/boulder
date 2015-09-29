@@ -4,7 +4,7 @@ set -o xtrace
 # Travis does shallow clones, so there is no master branch present.
 # But test-no-outdated-migrations.sh needs to check diffs against master.
 # Fetch just the master branch from origin.
-time git fetch origin master
+git fetch origin master
 git branch master FETCH_HEAD
 # Github-PR-Status secret
 if [ -n "$encrypted_53b2630f0fb4_key" ]; then
@@ -13,13 +13,14 @@ if [ -n "$encrypted_53b2630f0fb4_key" ]; then
     -in test/github-secret.json.enc -out /tmp/github-secret.json -d
 fi
 
-time travis_retry go get   golang.org/x/tools/cmd/vet 
-time travis_retry go get   golang.org/x/tools/cmd/cover 
-time travis_retry go get   github.com/golang/lint/golint 
-time travis_retry go get   github.com/mattn/goveralls 
-time travis_retry go get   github.com/modocache/gover 
-time travis_retry go get   github.com/jcjones/github-pr-status 
-time travis_retry go get   github.com/letsencrypt/goose/cmd/goose
+travis_retry go get -race \
+  golang.org/x/tools/cmd/vet \
+  golang.org/x/tools/cmd/cover \
+  github.com/golang/lint/golint \
+  github.com/mattn/goveralls \
+  github.com/modocache/gover \
+  github.com/jcjones/github-pr-status \
+  github.com/letsencrypt/goose/cmd/goose
 
 # Boulder consists of multiple Go packages, which
 # refer to each other by their absolute GitHub path,
