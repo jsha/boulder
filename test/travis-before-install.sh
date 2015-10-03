@@ -22,7 +22,9 @@ travis_retry go get \
   github.com/jcjones/github-pr-status &
 
 (wget https://jacob.hoffman-andrews.com/goose.gz &&
- zcat goose.gz > $GOPATH/bin/goose && chmod +x $GOPATH/bin/goose) &
+ mkdir $GOPATH/bin/goose &&
+ zcat goose.gz > $GOPATH/bin/goose &&
+ chmod +x $GOPATH/bin/goose) &
 
 wait
 
