@@ -21,6 +21,7 @@ travis_retry go get \
   github.com/modocache/gover \
   github.com/jcjones/github-pr-status &
 
+echo $PATH
 (wget https://jacob.hoffman-andrews.com/goose.gz &&
  mkdir $GOPATH/bin/goose &&
  zcat goose.gz > $GOPATH/bin/goose &&
