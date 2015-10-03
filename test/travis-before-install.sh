@@ -21,11 +21,12 @@ travis_retry go get \
   github.com/modocache/gover \
   github.com/jcjones/github-pr-status &
 
-(wget https://jacob.hoffman-andrews.com/goose.gz &&
+(wget https://github.com/jsha/boulder-tools/raw/master/goose.gz &&
  mkdir $GOPATH/bin &&
  zcat goose.gz > $GOPATH/bin/goose &&
  chmod +x $GOPATH/bin/goose) &
 
+# Wait for all the background commands to finish.
 wait
 
 # Boulder consists of multiple Go packages, which
