@@ -1,11 +1,22 @@
 -- Before setting up any privileges, we revoke existing ones to make sure we
 -- start from a clean slate.
-REVOKE ALL PRIVILEGES, GRANT OPTION FROM 'policy'@'localhost';
-REVOKE ALL PRIVILEGES, GRANT OPTION FROM 'sa'@'localhost';
-REVOKE ALL PRIVILEGES, GRANT OPTION FROM 'ocsp_resp'@'localhost';
-REVOKE ALL PRIVILEGES, GRANT OPTION FROM 'ocsp_update'@'localhost';
-REVOKE ALL PRIVILEGES, GRANT OPTION FROM 'revoker'@'localhost';
-REVOKE ALL PRIVILEGES, GRANT OPTION FROM 'importer'@'localhost';
-REVOKE ALL PRIVILEGES, GRANT OPTION FROM 'mailer'@'localhost';
-REVOKE ALL PRIVILEGES, GRANT OPTION FROM 'cert_checker'@'localhost';
+-- Note that dropping a non-existing user produces an error that aborts the
+-- script, so we first grant a harmless privilege to each user to ensure it
+-- exists.
+GRANT USAGE ON *.* TO 'policy'@'localhost';
+DROP USER 'policy'@'localhost';
+GRANT USAGE ON *.* TO 'sa'@'localhost';
+DROP USER 'sa'@'localhost';
+GRANT USAGE ON *.* TO 'ocsp_resp'@'localhost';
+DROP USER 'ocsp_resp'@'localhost';
+GRANT USAGE ON *.* TO 'ocsp_update'@'localhost';
+DROP USER 'ocsp_update'@'localhost';
+GRANT USAGE ON *.* TO 'revoker'@'localhost';
+DROP USER 'revoker'@'localhost';
+GRANT USAGE ON *.* TO 'importer'@'localhost';
+DROP USER 'importer'@'localhost';
+GRANT USAGE ON *.* TO 'mailer'@'localhost';
+DROP USER 'mailer'@'localhost';
+GRANT USAGE ON *.* TO 'cert_checker'@'localhost';
+DROP USER 'cert_checker'@'localhost';
 
