@@ -465,14 +465,13 @@ func (rpc *AmqpRPCServer) Start(c cmd.Config) error {
 						rpc.log.Info(" [!] Finished processing messages")
 						rpc.dMu.Unlock()
 						return nil
-					} else {
-						rpc.dMu.Unlock()
-						rpc.log.Info(" [!] not done yet")
 					}
+					rpc.dMu.Unlock()
+					rpc.log.Info(" [!] Got channel close, but no signal to shut down. Continuing.")
 				}
 			case err = <-closeChan:
 				rpc.connected = false
-				rpc.log.Warning(fmt.Sprintf(" [!] AMQP Channel closed, will reconnect in 5 seconds: [%s]", err))
+				rpc.log.Warning(fmt.Sprintf(" [!] AMQP Channel closed, will reconnect [%s]", err))
 				time.Sleep(time.Second * 5)
 				blocking = false
 			}
@@ -608,32 +607,39 @@ func NewAmqpRPCClient(clientQueuePrefix, serverQueue string, c cmd.Config, stats
 				}
 			case err = <-closeChan:
 				rpc.log.Info(fmt.Sprintf(" [!] Client reply channel closed : %s", rpc.clientQueue))
-				for {
-					time.Sleep(time.Second * 5)
-					rpc.log.Info(fmt.Sprintf(" [!] Attempting reconnect for %s", rpc.clientQueue))
-					channel, err = AmqpChannel(c)
-					if err != nil {
-						rpc.log.Info(fmt.Sprintf(" [!] Client channel reconnect failed: %s", err))
-						continue
-					}
-					msgs, err = amqpSubscribe(channel, clientQueue, "", rpc.log)
-					if err != nil {
-						rpc.log.Info(fmt.Sprintf(" [!] Client->server channel resubscribe failed: %s", err))
-						continue
-					}
-					closeChan = channel.NotifyClose(make(chan *amqp.Error, 1))
-					break
-				}
-				rpc.log.Info(fmt.Sprintf(" [!] Reconnect success for %s", rpc.clientQueue))
-				rpc.mu.Lock()
-				rpc.channel = channel
-				rpc.mu.Unlock()
+				msgs, closeChan = rpc.reconnect(c, clientQueue)
 				break
 			}
 		}
 	}()
 
 	return rpc, err
+}
+
+func (rpc *AmqpRPCCLient) reconnect(config cmd.Config, queueName string) (msgs <-chan amqp.Delivery, closeChan chan *amqp.Error) {
+	var channel *amqp.Channel
+	var err error
+	for {
+		time.Sleep(time.Second * 5)
+		rpc.log.Info(fmt.Sprintf(" [!] Attempting reconnect for %s", queueName))
+		channel, err = AmqpChannel(config)
+		if err != nil {
+			rpc.log.Info(fmt.Sprintf(" [!] Client channel reconnect failed: %s", err))
+			continue
+		}
+		msgs, err = amqpSubscribe(channel, queueName, "", rpc.log)
+		if err != nil {
+			rpc.log.Info(fmt.Sprintf(" [!] Client->server channel resubscribe failed: %s", err))
+			continue
+		}
+		closeChan = channel.NotifyClose(make(chan *amqp.Error, 1))
+		break
+	}
+	rpc.log.Info(fmt.Sprintf(" [!] Reconnect success for %s", queueName))
+	rpc.mu.Lock()
+	rpc.channel = channel
+	rpc.mu.Unlock()
+	return msgs, closeChan
 }
 
 // SetTimeout configures the maximum time DispatchSync will wait for a response
