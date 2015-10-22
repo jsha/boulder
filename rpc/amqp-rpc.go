@@ -234,6 +234,8 @@ func wrapError(err error) (rpcError rpcError) {
 			rpcError.Type = "TooManyRPCRequestsError"
 		case core.RateLimitedError:
 			rpcError.Type = "RateLimitedError"
+		case core.ServiceUnavailableError:
+			rpcError.Type = "ServiceUnavailableError"
 		}
 	}
 	return
@@ -265,6 +267,8 @@ func unwrapError(rpcError rpcError) (err error) {
 			err = core.TooManyRPCRequestsError(rpcError.Value)
 		case "RateLimitedError":
 			err = core.RateLimitedError(rpcError.Value)
+		case "ServiceUnavailableError":
+			err = core.ServiceUnavailableError(rpcError.Value)
 		default:
 			err = errors.New(rpcError.Value)
 		}
