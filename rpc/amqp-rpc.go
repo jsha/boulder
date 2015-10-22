@@ -604,7 +604,7 @@ func NewAmqpRPCClient(clientQueuePrefix, serverQueue string, c cmd.Config, stats
 				} else {
 					// chan has been closed by rpc.channel.Cancel
 					rpc.log.Info(fmt.Sprintf(" [!] Client reply channel closed: %s", rpc.clientQueue))
-					return
+					continue
 				}
 			case err = <-closeChan:
 				rpc.log.Info(fmt.Sprintf(" [!] Client reply channel closed : %s", rpc.clientQueue))
