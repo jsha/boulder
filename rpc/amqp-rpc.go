@@ -426,7 +426,7 @@ func (rpc *AmqpRPCServer) Start(c cmd.Config) error {
 		var err error
 		rpc.Channel, err = AmqpChannel(c)
 		if err != nil {
-			rpc.log.Warning(fmt.Sprintf(" [!] Failed to connect to AMQP server channle: %s", err))
+			rpc.log.Warning(fmt.Sprintf(" [!] Failed to connect to AMQP server channel: %s", err))
 			time.Sleep(time.Second * 5)
 			continue
 		}
@@ -527,7 +527,7 @@ func (rpc *AmqpRPCServer) Stop() {
 // and ignore the return value.
 //
 // DispatchSync will manage the channel for you, and also enforce a
-// timeout on the transaction (default 10 seconds)
+// timeout on the transaction .
 type AmqpRPCCLient struct {
 	serverQueue string
 	clientQueue string
@@ -565,7 +565,7 @@ func NewAmqpRPCClient(clientQueuePrefix, serverQueue string, c cmd.Config, stats
 		clientQueue: clientQueue,
 		channel:     channel,
 		pending:     make(map[string]chan []byte),
-		timeout:     1 * time.Second,
+		timeout:     10 * time.Second,
 		log:         blog.GetAuditLogger(),
 		stats:       stats,
 	}
