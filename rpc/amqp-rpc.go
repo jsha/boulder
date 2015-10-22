@@ -120,7 +120,7 @@ func amqpSubscribe(ch *amqp.Channel, name string) (<-chan amqp.Delivery, error) 
 		AmqpNoWait,
 		nil)
 	if err != nil {
-		return nil, errors.New(fmt.Sprintf("could not declare queue: %s", err))
+		return nil, fmt.Errorf("could not declare queue: %s", err)
 	}
 
 	routingKey := name
@@ -132,9 +132,9 @@ func amqpSubscribe(ch *amqp.Channel, name string) (<-chan amqp.Delivery, error) 
 		false,
 		nil)
 	if err != nil {
-		err = errors.New(fmt.Sprintf(
+		err = fmt.Errorf(
 			"Could not bind to queue [%s]. NOTE: You may need to delete %s to re-trigger the bind attempt after fixing permissions, or manually bind the queue to %s.",
-			name, name, routingKey))
+			name, name, routingKey)
 		return nil, err
 	}
 
@@ -147,7 +147,7 @@ func amqpSubscribe(ch *amqp.Channel, name string) (<-chan amqp.Delivery, error) 
 		AmqpNoWait,
 		nil)
 	if err != nil {
-		return nil, errors.New(fmt.Sprintf("Could not subscribe to queue: %s", err))
+		return nil, fmt.Errorf("Could not subscribe to queue: %s", err)
 	}
 
 	return msgs, nil
@@ -159,13 +159,13 @@ func amqpSubscribe(ch *amqp.Channel, name string) (<-chan amqp.Delivery, error) 
 func connect(config cmd.Config, queueName string) (msgs <-chan amqp.Delivery, channel *amqp.Channel, closeChan chan *amqp.Error, err error) {
 	channel, err = AmqpChannel(config)
 	if err != nil {
-		return nil, nil, nil, errors.New(fmt.Sprintf(
-			"channel connect failed for %s: %s", queueName, err))
+		return nil, nil, nil,
+			fmt.Errorf("channel connect failed for %s: %s", queueName, err)
 	}
 	msgs, err = amqpSubscribe(channel, queueName)
 	if err != nil {
-		return nil, nil, nil, errors.New(
-			fmt.Sprintf("queue subscribe failed for %s: %s", queueName, err))
+		return nil, nil, nil,
+			fmt.Errorf("queue subscribe failed for %s: %s", queueName, err)
 	}
 	closeChan = channel.NotifyClose(make(chan *amqp.Error, 1))
 	return
@@ -489,7 +489,6 @@ func (rpc *AmqpRPCServer) Start(c cmd.Config) error {
 			rpc.mu.Unlock()
 		}
 	}
-	return nil
 }
 
 var signalToName = map[os.Signal]string{
