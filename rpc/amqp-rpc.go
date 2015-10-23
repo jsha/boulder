@@ -203,7 +203,7 @@ type AmqpRPCServer struct {
 	dispatchTable                  map[string]func([]byte) ([]byte, error)
 	connected                      bool
 	done                           bool
-	mu                             sync.Mutex
+	mu                             sync.RWMutex
 	currentGoroutines              int64
 	maxConcurrentRPCServerRequests int64
 	tooManyRequestsResponse        []byte
@@ -406,6 +406,8 @@ func (rpc *AmqpRPCServer) processMessage(msg amqp.Delivery) {
 		rpc.log.Info(fmt.Sprintf(" [s>][%s][%s] %s failed, replying: %s (%s) [%s]", rpc.serverQueue, msg.ReplyTo, msg.Type, response.Error.Value, response.Error.Type, msg.CorrelationId))
 	}
 	rpc.log.Debug(fmt.Sprintf(" [s>][%s][%s] replying %s(%s) [%s]", rpc.serverQueue, msg.ReplyTo, msg.Type, core.B64enc(jsonResponse), msg.CorrelationId))
+	rpc.mu.RLock()
+	defer rpc.mu.RUnlock()
 	rpc.Channel.Publish(
 		AmqpExchange,
 		msg.ReplyTo,
@@ -420,6 +422,8 @@ func (rpc *AmqpRPCServer) processMessage(msg amqp.Delivery) {
 }
 
 func (rpc *AmqpRPCServer) replyTooManyRequests(msg amqp.Delivery) {
+	rpc.mu.RLock()
+	defer rpc.mu.RUnlock()
 	rpc.Channel.Publish(
 		AmqpExchange,
 		msg.ReplyTo,
@@ -471,14 +475,14 @@ func (rpc *AmqpRPCServer) Start(c cmd.Config) error {
 					rpc.processMessage(msg)
 				}()
 			} else {
-				rpc.mu.Lock()
+				rpc.mu.RLock()
 				if rpc.done {
 					// chan has been closed by rpc.channel.Cancel
 					rpc.log.Info(" [!] Finished processing messages")
-					rpc.mu.Unlock()
+					rpc.mu.RUnlock()
 					return nil
 				}
-				rpc.mu.Unlock()
+				rpc.mu.RUnlock()
 				rpc.log.Info(" [!] Got channel close, but no signal to shut down. Continuing.")
 			}
 		case err = <-closeChan:
@@ -518,6 +522,8 @@ func (rpc *AmqpRPCServer) Stop() {
 	rpc.mu.Unlock()
 	if rpc.connected {
 		rpc.log.Info(" [!] Shutting down RPC server, stopping new deliveries and processing remaining messages")
+		rpc.mu.RLock()
+		defer rpc.mu.RUnlock()
 		rpc.Channel.Cancel(consumerName, false)
 	} else {
 		rpc.log.Info("[!] Shutting down RPC server, nothing to clean up")
@@ -643,6 +649,8 @@ func (rpc *AmqpRPCCLient) dispatch(method string, body []byte) chan []byte {
 
 	// Send the request
 	rpc.log.Debug(fmt.Sprintf(" [c>][%s] requesting %s(%s) [%s]", rpc.clientQueue, method, core.B64enc(body), corrID))
+	rpc.mu.RLock()
+	defer rpc.mu.RUnlock()
 	rpc.channel.Publish(
 		AmqpExchange,
 		rpc.serverQueue,
