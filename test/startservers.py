@@ -57,6 +57,7 @@ def start(race_detection):
     startup. Anything that did start before this point can be cleaned
     up explicitly by calling stop(), or automatically atexit.
     """
+    forward()
     global processes
     t = ToSServerThread()
     t.daemon = True
@@ -119,6 +120,22 @@ def start(race_detection):
     print "All servers running. Hit ^C to kill."
     return True
 
+def forward():
+    cmd = """ncat --sh-exec "exec ncat localhost 5672" -l 5673 --keep-open"""
+    p = subprocess.Popen(cmd, shell=True)
+    p.cmd = cmd
+    print('started %s with pid %d' % (p.cmd, p.pid))
+    global ncat_process
+    ncat_process = p
+
+def bounce_forward():
+    """Bring forwarded TCP connection down and back up again."""
+    global ncat_process
+    if ncat_process is not None:
+        ncat_process.kill()
+        forward()
+    else:
+        print('Bounced, but not running ncat')
 
 def check():
     """Return true if all started processes are still alive.
