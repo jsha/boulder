@@ -17,6 +17,7 @@ addons:
       - libffi-dev
       - ca-certificates
       - rsyslog
+      - nmap
   mariadb: "10.0"
 
 sudo: false
