@@ -89,22 +89,22 @@ var questions = {
 };
 
 var cliOptions = cli.parse({
-  // To test against the demo instance, pass --newReg "https://www.letsencrypt-demo.org/acme/new-reg"
+  // To test against the demo instance, pass --directory "https://www.letsencrypt-demo.org/directory"
   // To get a cert from the demo instance, you must be publicly reachable on
   // port 443 under the DNS name you are trying to get, and run test.js as root.
-  newReg:  ["new-reg", "New Registration URL", "string", "http://localhost:4000/acme/new-reg"],
+  directory:  ["directory", "Directory URL", "string", "http://localhost:4000/directory"],
   certKeyFile:  ["certKey", "File for cert key (created if not exists)", "path", "cert-key.pem"],
   certFile:  ["cert", "Path to output certificate (DER format)", "path", "cert.pem"],
   email:  ["email", "Email address", "string", null],
   agreeTerms:  ["agree", "Agree to terms of service", "boolean", null],
   domains:  ["domains", "Domain name(s) for which to request a certificate (comma-separated)", "string", null],
+  accountKeyFile:  ["account-key", "Account key. Will be created and registered if doesn't exist.", "string", "account-key.pem"],
 });
 
 var state = {
   certPrivateKey: null,
   accountKeyPair: null,
 
-  newRegistrationURL: cliOptions.newReg,
   registrationURL: "",
 
   termsRequired: false,
@@ -129,6 +129,7 @@ var state = {
   certificateURL: "",
   certFile: cliOptions.certFile,
   keyFile: cliOptions.certKeyFile,
+  accountKeyFile: cliOptions.accountKeyFile,
 };
 
 function parseLink(link) {
@@ -196,7 +197,18 @@ saveFiles
 */
 
 function main() {
-  makeKeyPair();
+  request.get(cliOptions.directory, function(err, resp, body) {
+    if (err) {
+      console.error(err);
+    } else if (resp.statusCode != 200) {
+      console.error("Status code", resp.statusCode);
+      console.error(body);
+    } else {
+      var directory = JSON.parse(body);
+      state.newAuthorizationURL = directory["new-authz"]
+      loadAccountKeyPair();
+    }
+  });
 }
 
 function makeKeyPair() {
@@ -209,21 +221,36 @@ function makeKeyPair() {
     state.certPrivateKey = cryptoUtil.importPemPrivateKey(fs.readFileSync(state.keyFile));
 
     console.log();
-    makeAccountKeyPair()
+    loadAccountKeyPair();
   });
+}
+
+function loadAccountKeyPair() {
+  try {
+    console.log(state.accountKeyFile);
+    fs.statSync(state.accountKeyFile);
+  } catch (e) {
+    console.error(e);
+    makeAccountKeyPair();
+    return;
+  }
+  console.log("Loading account key from " + state.accountKeyFile);
+  state.accountKeyPair = cryptoUtil.importPemPrivateKey(fs.readFileSync(state.accountKeyFile));
+  state.acme = new Acme(state.accountKeyPair);
+  // Skip registration
+  promptChallenges();
 }
 
 function makeAccountKeyPair(answers) {
   console.log("Generating account key pair...");
-  child_process.exec("openssl genrsa -out account-key.pem 2048", function (error, stdout, stderr) {
+  child_process.exec("openssl genrsa -out " + state.accountKeyFile + " 2048", function (error, stdout, stderr) {
     if (error) {
       console.log(error);
       process.exit(1);
     }
-    state.accountKeyPair = cryptoUtil.importPemPrivateKey(fs.readFileSync("account-key.pem"));
+    state.accountKeyPair = cryptoUtil.importPemPrivateKey(fs.readFileSync(state.accountKeyFile));
     state.acme = new Acme(state.accountKeyPair);
 
-    console.log();
     if (cliOptions.email) {
       register({email: cliOptions.email});
     } else {
@@ -307,18 +334,23 @@ function sendAgreement(answers) {
         console.log("Couldn't POST agreement back to server, aborting.");
         process.exit(1);
       } else {
-        if (!state.domains || state.domains.length == 0) {
-          inquirer.prompt(questions.domain, getChallenges);
-        } else {
-          getChallenges({domain: state.domains.pop()});
-        }
+        promptChallenges();
       }
     });
+}
+
+function promptChallenges() {
+  if (!state.domains || state.domains.length == 0) {
+    inquirer.prompt(questions.domain, getChallenges);
+  } else {
+    getChallenges({domain: state.domains.pop()});
+  }
 }
 
 function getChallenges(answers) {
   state.domain = answers.domain;
 
+  console.log(state.newAuthorizationURL);
   // Register public key
   post(state.newAuthorizationURL, {
     resource: "new-authz",
@@ -384,6 +416,7 @@ function getReadyToValidate(err, resp, body) {
   } else {
     state.httpServer.listen(80)
   }
+  process.exit(0);
 
   cli.spinner("Validating domain");
   post(state.responseURL, {
