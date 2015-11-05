@@ -82,7 +82,7 @@ func serveTestResolver() {
 
 func main() {
 	flag.Parse()
-	fmt.Println("dns-srv: Starting test DNS server")
+	fmt.Println("dns-srv: Starting test DNS server on", *listen)
 	serveTestResolver()
 	forever := make(chan bool, 1)
 	<-forever
