@@ -6,13 +6,18 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"net"
 	"os"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/letsencrypt/boulder/Godeps/_workspace/src/github.com/miekg/dns"
 )
+
+var listen = flag.String("listen", ":8053", "port (and optionally address) to listen on")
 
 func dnsHandler(w dns.ResponseWriter, r *dns.Msg) {
 	defer w.Close()
@@ -42,18 +47,15 @@ func dnsHandler(w dns.ResponseWriter, r *dns.Msg) {
 			record.A = net.ParseIP(fakeDNS)
 
 			m.Answer = append(m.Answer, record)
-		case dns.TypeMX:
-			record := new(dns.MX)
-			record.Hdr = dns.RR_Header{
-				Name:   q.Name,
-				Rrtype: dns.TypeMX,
-				Class:  dns.ClassINET,
-				Ttl:    0,
+			if strings.Contains(q.Name, "sleep") {
+				index := strings.Index(q.Name, ".")
+				sleepTime, err := strconv.Atoi(q.Name[0:index])
+				if err == nil {
+					time.Sleep(time.Duration(sleepTime) * time.Second)
+				} else {
+					fmt.Printf("Parse error: %s", err)
+				}
 			}
-			record.Mx = "mail." + q.Name
-			record.Preference = 10
-
-			m.Answer = append(m.Answer, record)
 		}
 	}
 
@@ -64,7 +66,7 @@ func dnsHandler(w dns.ResponseWriter, r *dns.Msg) {
 func serveTestResolver() {
 	dns.HandleFunc(".", dnsHandler)
 	server := &dns.Server{
-		Addr:         "127.0.0.1:8053",
+		Addr:         *listen,
 		Net:          "udp",
 		ReadTimeout:  time.Millisecond,
 		WriteTimeout: time.Millisecond,
@@ -79,6 +81,7 @@ func serveTestResolver() {
 }
 
 func main() {
+	flag.Parse()
 	fmt.Println("dns-srv: Starting test DNS server")
 	serveTestResolver()
 	forever := make(chan bool, 1)
