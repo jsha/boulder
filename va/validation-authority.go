@@ -676,7 +676,7 @@ func (va *ValidationAuthorityImpl) validate(authz core.Authorization, challengeI
 
 		if err != nil {
 			logEvent.Error = err.Error()
-		} else if !authz.Challenges[challengeIndex].RecordsSane() {
+		} else if !result.RecordsSane() {
 			chall := &authz.Challenges[challengeIndex]
 			chall.Status = core.StatusInvalid
 			chall.Error = &core.ProblemDetails{Type: core.ServerInternalProblem,
@@ -723,13 +723,13 @@ func (va *ValidationAuthorityImpl) validateChallenge(identifier core.AcmeIdentif
 		// TODO(https://github.com/letsencrypt/boulder/issues/894): Delete this case
 		return va.validateDvsni(identifier, challenge)
 	case core.ChallengeTypeHTTP01:
-		va.validateHTTP01(identifier, challenge)
+		return va.validateHTTP01(identifier, challenge)
 	case core.ChallengeTypeTLSSNI01:
 		return va.validateTLSSNI01(identifier, challenge)
 	case core.ChallengeTypeDNS01:
 		return va.validateDNS01(identifier, challenge)
 	}
-	return core.Challenge{}, fmt.Errorf("invalid challenge type")
+	return core.Challenge{}, fmt.Errorf("invalid challenge type %s", challenge.Type)
 }
 
 // UpdateValidations runs the validate() method asynchronously using goroutines.
