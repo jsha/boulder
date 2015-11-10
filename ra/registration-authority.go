@@ -290,18 +290,6 @@ func (ra *RegistrationAuthorityImpl) NewAuthorization(request core.Authorization
 		}
 	}
 
-	// Check CAA records for the requested identifier
-	present, valid, err := ra.VA.CheckCAARecords(identifier)
-	if err != nil {
-		return authz, err
-	}
-	// AUDIT[ Certificate Requests ] 11917fa4-10ef-4e0d-9105-bacbe7836a3c
-	ra.log.Audit(fmt.Sprintf("Checked CAA records for %s, registration ID %d [Present: %t, Valid for issuance: %t]", identifier.Value, regID, present, valid))
-	if !valid {
-		err = errors.New("CAA check for identifier failed")
-		return authz, err
-	}
-
 	// Create validations. The WFE will  update them with URIs before sending them out.
 	challenges, combinations, err := ra.PA.ChallengesFor(identifier, &reg.Key)
 

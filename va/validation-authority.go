@@ -634,6 +634,24 @@ func (va *ValidationAuthorityImpl) validateDNS01(identifier core.AcmeIdentifier,
 	return challenge, challenge.Error
 }
 
+func (va *ValidationAuthorityImpl) checkCAA(identifier core.AcmeIdentifier, regID int64) *core.ProblemDetails {
+	// Check CAA records for the requested identifier
+	present, valid, err := va.CheckCAARecords(identifier)
+	if err != nil {
+		va.log.Warning(fmt.Sprintf("Problem checking CAA: %s", err))
+		return problemDetailsFromDNSError(err)
+	}
+	// AUDIT[ Certificate Requests ] 11917fa4-10ef-4e0d-9105-bacbe7836a3c
+	va.log.Audit(fmt.Sprintf("Checked CAA records for %s, registration ID %d [Present: %t, Valid for issuance: %t]", identifier.Value, regID, present, valid))
+	if !valid {
+		return &core.ProblemDetails{
+			Type:   core.ConnectionProblem,
+			Detail: "CAA check for identifier failed",
+		}
+	}
+	return nil
+}
+
 // Overall validation process
 
 func (va *ValidationAuthorityImpl) validate(authz core.Authorization, challengeIndex int) {
@@ -653,20 +671,7 @@ func (va *ValidationAuthorityImpl) validate(authz core.Authorization, challengeI
 		var err error
 
 		vStart := va.clk.Now()
-		switch authz.Challenges[challengeIndex].Type {
-		case core.ChallengeTypeSimpleHTTP:
-			// TODO(https://github.com/letsencrypt/boulder/issues/894): Delete this case
-			authz.Challenges[challengeIndex], err = va.validateSimpleHTTP(authz.Identifier, authz.Challenges[challengeIndex])
-		case core.ChallengeTypeDVSNI:
-			// TODO(https://github.com/letsencrypt/boulder/issues/894): Delete this case
-			authz.Challenges[challengeIndex], err = va.validateDvsni(authz.Identifier, authz.Challenges[challengeIndex])
-		case core.ChallengeTypeHTTP01:
-			authz.Challenges[challengeIndex], err = va.validateHTTP01(authz.Identifier, authz.Challenges[challengeIndex])
-		case core.ChallengeTypeTLSSNI01:
-			authz.Challenges[challengeIndex], err = va.validateTLSSNI01(authz.Identifier, authz.Challenges[challengeIndex])
-		case core.ChallengeTypeDNS01:
-			authz.Challenges[challengeIndex], err = va.validateDNS01(authz.Identifier, authz.Challenges[challengeIndex])
-		}
+		result, err := va.validateChallenge(authz.Identifier, authz.Challenges[challengeIndex], authz.RegistrationID)
 		va.stats.TimingDuration(fmt.Sprintf("VA.Validations.%s.%s", authz.Challenges[challengeIndex].Type, authz.Challenges[challengeIndex].Status), time.Since(vStart), 1.0)
 
 		if err != nil {
@@ -677,6 +682,8 @@ func (va *ValidationAuthorityImpl) validate(authz core.Authorization, challengeI
 			chall.Error = &core.ProblemDetails{Type: core.ServerInternalProblem,
 				Detail: "Records for validation failed sanity check"}
 			logEvent.Error = chall.Error.Detail
+		} else {
+			authz.Challenges[challengeIndex] = result
 		}
 		logEvent.Challenge = authz.Challenges[challengeIndex]
 	}
@@ -687,6 +694,31 @@ func (va *ValidationAuthorityImpl) validate(authz core.Authorization, challengeI
 	va.log.Notice(fmt.Sprintf("Validations: %+v", authz))
 
 	va.RA.OnValidationUpdate(authz)
+}
+
+func (va *ValidationAuthorityImpl) validateChallenge(identifier core.AcmeIdentifier, challenge core.Challenge, regID int64) (core.Challenge, error) {
+	problemDetails := va.checkCAA(identifier, regID)
+	if problemDetails != nil {
+		challenge.Error = problemDetails
+		challenge.Status = core.StatusInvalid
+		return challenge, problemDetails
+	}
+
+	switch challenge.Type {
+	case core.ChallengeTypeSimpleHTTP:
+		// TODO(https://github.com/letsencrypt/boulder/issues/894): Delete this case
+		return va.validateSimpleHTTP(identifier, challenge)
+	case core.ChallengeTypeDVSNI:
+		// TODO(https://github.com/letsencrypt/boulder/issues/894): Delete this case
+		return va.validateDvsni(identifier, challenge)
+	case core.ChallengeTypeHTTP01:
+		va.validateHTTP01(identifier, challenge)
+	case core.ChallengeTypeTLSSNI01:
+		return va.validateTLSSNI01(identifier, challenge)
+	case core.ChallengeTypeDNS01:
+		return va.validateDNS01(identifier, challenge)
+	}
+	return core.Challenge{}, fmt.Errorf("invalid challenge type")
 }
 
 // UpdateValidations runs the validate() method asynchronously using goroutines.
@@ -753,14 +785,7 @@ func (va *ValidationAuthorityImpl) getCAASet(hostname string) (*CAASet, error) {
 		}
 		CAAs, caaRtt, err := va.DNSResolver.LookupCAA(name)
 		if err != nil {
-			problem := "error"
-			if opErr, ok := err.(*net.OpError); ok && opErr.Timeout() {
-				problem = "timeout"
-			}
-			return nil, &core.ProblemDetails{
-				Type:   core.ConnectionProblem,
-				Detail: fmt.Sprintf("DNS %s looking up CAA for %s", problem, hostname),
-			}
+			return nil, err
 		}
 		va.stats.TimingDuration("VA.DNS.RTT.CAA", caaRtt, 1.0)
 		va.stats.Inc("VA.DNS.Rate", 1, 1.0)
