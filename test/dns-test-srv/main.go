@@ -34,6 +34,15 @@ func dnsHandler(w dns.ResponseWriter, r *dns.Msg) {
 		fakeDNS = "127.0.0.1"
 	}
 	for _, q := range r.Question {
+		if strings.Contains(q.Name, "sleep") {
+			index := strings.Index(q.Name, ".")
+			sleepTime, err := strconv.Atoi(q.Name[0:index])
+			if err == nil {
+				time.Sleep(time.Duration(sleepTime) * time.Second)
+			} else {
+				fmt.Printf("Parse error: %s", err)
+			}
+		}
 		fmt.Printf("dns-srv: Query -- [%s] %s\n", q.Name, dns.TypeToString[q.Qtype])
 		switch q.Qtype {
 		case dns.TypeA:
@@ -47,15 +56,6 @@ func dnsHandler(w dns.ResponseWriter, r *dns.Msg) {
 			record.A = net.ParseIP(fakeDNS)
 
 			m.Answer = append(m.Answer, record)
-			if strings.Contains(q.Name, "sleep") {
-				index := strings.Index(q.Name, ".")
-				sleepTime, err := strconv.Atoi(q.Name[0:index])
-				if err == nil {
-					time.Sleep(time.Duration(sleepTime) * time.Second)
-				} else {
-					fmt.Printf("Parse error: %s", err)
-				}
-			}
 		}
 	}
 
