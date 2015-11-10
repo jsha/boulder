@@ -671,7 +671,7 @@ func (va *ValidationAuthorityImpl) validate(authz core.Authorization, challengeI
 		var err error
 
 		vStart := va.clk.Now()
-		result, err := va.validateChallenge(authz.Identifier, authz.Challenges[challengeIndex], authz.RegistrationID)
+		result, err := va.validateChallengeAndCAA(authz.Identifier, authz.Challenges[challengeIndex], authz.RegistrationID)
 		va.stats.TimingDuration(fmt.Sprintf("VA.Validations.%s.%s", authz.Challenges[challengeIndex].Type, authz.Challenges[challengeIndex].Status), time.Since(vStart), 1.0)
 
 		if err != nil {
@@ -696,14 +696,25 @@ func (va *ValidationAuthorityImpl) validate(authz core.Authorization, challengeI
 	va.RA.OnValidationUpdate(authz)
 }
 
-func (va *ValidationAuthorityImpl) validateChallenge(identifier core.AcmeIdentifier, challenge core.Challenge, regID int64) (core.Challenge, error) {
+func (va *ValidationAuthorityImpl) validateChallengeAndCAA(identifier core.AcmeIdentifier, challenge core.Challenge, regID int64) (core.Challenge, error) {
+	result, err := va.validateChallenge(identifier, challenge)
+	if err != nil {
+		return challenge, err
+	}
+
+	// Checking CAA happens after challenge validation because DNS errors affect
+	// both, and giving a DNS error on validation makes more sense than a DNS
+	// error on CAA.
 	problemDetails := va.checkCAA(identifier, regID)
 	if problemDetails != nil {
 		challenge.Error = problemDetails
 		challenge.Status = core.StatusInvalid
 		return challenge, problemDetails
 	}
+	return result, nil
+}
 
+func (va *ValidationAuthorityImpl) validateChallenge(identifier core.AcmeIdentifier, challenge core.Challenge) (core.Challenge, error) {
 	switch challenge.Type {
 	case core.ChallengeTypeSimpleHTTP:
 		// TODO(https://github.com/letsencrypt/boulder/issues/894): Delete this case
