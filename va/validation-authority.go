@@ -671,19 +671,17 @@ func (va *ValidationAuthorityImpl) validate(authz core.Authorization, challengeI
 		var err error
 
 		vStart := va.clk.Now()
-		result, err := va.validateChallengeAndCAA(authz.Identifier, authz.Challenges[challengeIndex], authz.RegistrationID)
+		authz.Challenges[challengeIndex], err = va.validateChallengeAndCAA(authz.Identifier, authz.Challenges[challengeIndex], authz.RegistrationID)
 		va.stats.TimingDuration(fmt.Sprintf("VA.Validations.%s.%s", authz.Challenges[challengeIndex].Type, authz.Challenges[challengeIndex].Status), time.Since(vStart), 1.0)
 
 		if err != nil {
 			logEvent.Error = err.Error()
-		} else if !result.RecordsSane() {
+		} else if !authz.Challenges[challengeIndex].RecordsSane() {
 			chall := &authz.Challenges[challengeIndex]
 			chall.Status = core.StatusInvalid
 			chall.Error = &core.ProblemDetails{Type: core.ServerInternalProblem,
 				Detail: "Records for validation failed sanity check"}
 			logEvent.Error = chall.Error.Detail
-		} else {
-			authz.Challenges[challengeIndex] = result
 		}
 		logEvent.Challenge = authz.Challenges[challengeIndex]
 	}
@@ -699,7 +697,7 @@ func (va *ValidationAuthorityImpl) validate(authz core.Authorization, challengeI
 func (va *ValidationAuthorityImpl) validateChallengeAndCAA(identifier core.AcmeIdentifier, challenge core.Challenge, regID int64) (core.Challenge, error) {
 	result, err := va.validateChallenge(identifier, challenge)
 	if err != nil {
-		return challenge, err
+		return result, err
 	}
 
 	// Checking CAA happens after challenge validation because DNS errors affect
@@ -709,7 +707,7 @@ func (va *ValidationAuthorityImpl) validateChallengeAndCAA(identifier core.AcmeI
 	if problemDetails != nil {
 		challenge.Error = problemDetails
 		challenge.Status = core.StatusInvalid
-		return challenge, problemDetails
+		return result, problemDetails
 	}
 	return result, nil
 }
