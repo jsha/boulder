@@ -28,6 +28,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"log"
+	"log/syslog"
 	"net"
 	"net/http"
 	_ "net/http/pprof" // HTTP performance profiling, added transparently to HTTP APIs
@@ -138,16 +139,9 @@ type Config struct {
 		SQLDebug bool
 	}
 
-	Statsd struct {
-		Server string
-		Prefix string
-	}
+	Statsd StatsdConfig
 
-	Syslog struct {
-		Network string
-		Server  string
-		Tag     string
-	}
+	Syslog SyslogConfig
 
 	Revoker struct {
 		DBConnect string
@@ -230,6 +224,20 @@ type Config struct {
 	}
 
 	SubscriberAgreementURL string
+}
+
+// SyslogConfig defines the config for syslogging.
+type SyslogConfig struct {
+	Network     string
+	Server      string
+	Tag         string
+	StdoutLevel *int
+}
+
+// StatsdConfig defines the config for Statsd.
+type StatsdConfig struct {
+	Server string
+	Prefix string
 }
 
 // CAConfig structs have configuration information for the certificate
@@ -354,7 +362,7 @@ type OCSPUpdaterConfig struct {
 
 // AppShell contains CLI Metadata
 type AppShell struct {
-	Action func(Config)
+	Action func(Config, statsd.Statter, *blog.AuditLogger)
 	Config func(*cli.Context, Config) Config
 	App    *cli.App
 }
@@ -402,11 +410,34 @@ func (as *AppShell) Run() {
 			config = as.Config(c, config)
 		}
 
-		as.Action(config)
+		stats, auditlogger := statsAndLogging(config.Statsd, config.Syslog)
+		auditlogger.Info(as.VersionString())
+
+		as.Action(config, stats, auditlogger)
 	}
 
 	err := as.App.Run(os.Args)
 	FailOnError(err, "Failed to run application")
+}
+
+func statsAndLogging(statConf StatsdConfig, logConf SyslogConfig) (statsd.Statter, *blog.AuditLogger) {
+	stats, err := statsd.NewClient(statConf.Server, statConf.Prefix)
+	FailOnError(err, "Couldn't connect to statsd")
+
+	syslogger, err := syslog.Dial(
+		logConf.Network,
+		logConf.Server,
+		syslog.LOG_INFO|syslog.LOG_LOCAL0,
+		logConf.Tag)
+	FailOnError(err, "Could not connect to Syslog")
+	level := 7
+	if logConf.StdoutLevel != nil {
+		level = *logConf.StdoutLevel
+	}
+	auditlogger, err := blog.NewAuditLogger(syslogger, stats, level)
+	FailOnError(err, "Could not connect to Syslog")
+	blog.SetAuditLogger(auditlogger)
+	return stats, auditlogger
 }
 
 // VersionString produces a friendly Application version string
