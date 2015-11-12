@@ -33,6 +33,7 @@ import (
 	"net/http"
 	_ "net/http/pprof" // HTTP performance profiling, added transparently to HTTP APIs
 	"os"
+	"path"
 	"runtime"
 	"time"
 
@@ -230,7 +231,6 @@ type Config struct {
 type SyslogConfig struct {
 	Network     string
 	Server      string
-	Tag         string
 	StdoutLevel *int
 }
 
@@ -410,8 +410,12 @@ func (as *AppShell) Run() {
 			config = as.Config(c, config)
 		}
 
-		stats, auditlogger := statsAndLogging(config.Statsd, config.Syslog)
+		stats, auditlogger := StatsAndLogging(config.Statsd, config.Syslog)
 		auditlogger.Info(as.VersionString())
+
+		// If as.Action generates a panic, this will log it to syslog.
+		// AUDIT[ Error Conditions ] 9cc4d537-8534-4970-8665-4b382abe82f3
+		defer auditlogger.AuditPanic()
 
 		as.Action(config, stats, auditlogger)
 	}
@@ -420,15 +424,19 @@ func (as *AppShell) Run() {
 	FailOnError(err, "Failed to run application")
 }
 
-func statsAndLogging(statConf StatsdConfig, logConf SyslogConfig) (statsd.Statter, *blog.AuditLogger) {
+// StatsAndLogging constructs a Statter and and AuditLogger based on its config
+// parameters, and return them both. Crashes if any setup fails.
+// Also sets the constructed AuditLogger as the default logger.
+func StatsAndLogging(statConf StatsdConfig, logConf SyslogConfig) (statsd.Statter, *blog.AuditLogger) {
 	stats, err := statsd.NewClient(statConf.Server, statConf.Prefix)
 	FailOnError(err, "Couldn't connect to statsd")
 
+	tag := path.Base(os.Args[0])
 	syslogger, err := syslog.Dial(
 		logConf.Network,
 		logConf.Server,
 		syslog.LOG_INFO|syslog.LOG_LOCAL0,
-		logConf.Tag)
+		tag)
 	FailOnError(err, "Could not connect to Syslog")
 	level := 7
 	if logConf.StdoutLevel != nil {

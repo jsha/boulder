@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"log/syslog"
 	"os"
+	"path"
 	"runtime"
 	"strings"
 	"sync"
@@ -133,8 +134,11 @@ func GetAuditLogger() *AuditLogger {
 // Log the provided message at the appropriate level, writing to
 // both stdout and the Logger, as well as informing statsd.
 func (log *AuditLogger) logAtLevel(level syslog.Priority, msg string) (err error) {
-	if int(level) < log.stdoutLogLevel {
-		fmt.Printf("%s %s\n", time.Now().Format("01/02 15:04:05"), msg)
+	if int(level) <= log.stdoutLogLevel {
+		fmt.Printf("%s %11s %s\n",
+			time.Now().Format("15:04:05"),
+			path.Base(os.Args[0]),
+			msg)
 	}
 
 	switch level {
@@ -155,7 +159,7 @@ func (log *AuditLogger) logAtLevel(level syslog.Priority, msg string) (err error
 	case syslog.LOG_NOTICE:
 		err = log.SyslogWriter.Notice(msg)
 	default:
-		err = fmt.Errorf("Unknown logging level: %s", level)
+		err = fmt.Errorf("Unknown logging level: %d", int(level))
 	}
 	return
 }

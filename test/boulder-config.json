@@ -2,7 +2,6 @@
   "syslog": {
     "network": "",
     "server": "",
-    "tag": "boulder",
     "stdoutlevel": 0
   },
 
