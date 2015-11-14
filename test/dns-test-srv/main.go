@@ -51,7 +51,7 @@ func dnsHandler(w dns.ResponseWriter, r *dns.Msg) {
 				Name:   q.Name,
 				Rrtype: dns.TypeA,
 				Class:  dns.ClassINET,
-				Ttl:    0,
+				Ttl:    86400,
 			}
 			record.A = net.ParseIP(fakeDNS)
 
