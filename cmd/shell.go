@@ -28,10 +28,12 @@ import (
 	"fmt"
 	"io/ioutil"
 	"log"
+	"log/syslog"
 	"net"
 	"net/http"
 	_ "net/http/pprof" // HTTP performance profiling, added transparently to HTTP APIs
 	"os"
+	"path"
 	"runtime"
 	"time"
 
@@ -105,6 +107,9 @@ type Config struct {
 
 		MaxContactsPerRegistration int
 
+		// UseIsSafeDomain determines whether to call VA.IsSafeDomain
+		UseIsSafeDomain bool // TODO(jmhodges): remove after va IsSafeDomain deploy
+
 		// DebugAddr is the address to run the /debug handlers on.
 		DebugAddr string
 	}
@@ -125,6 +130,8 @@ type Config struct {
 
 		MaxConcurrentRPCServerRequests int64
 
+		GoogleSafeBrowsing *GoogleSafeBrowsingConfig
+
 		// DebugAddr is the address to run the /debug handlers on.
 		DebugAddr string
 	}
@@ -133,16 +140,9 @@ type Config struct {
 		SQLDebug bool
 	}
 
-	Statsd struct {
-		Server string
-		Prefix string
-	}
+	Statsd StatsdConfig
 
-	Syslog struct {
-		Network string
-		Server  string
-		Tag     string
-	}
+	Syslog SyslogConfig
 
 	Revoker struct {
 		DBConnect string
@@ -255,10 +255,37 @@ type CAConfig struct {
 }
 
 // PAConfig specifies how a policy authority should connect to its
-// database, and what policies it should enforce.
+// database, what policies it should enforce, and what challenges
+// it should offer.
 type PAConfig struct {
 	DBConnect              string
 	EnforcePolicyWhitelist bool
+	Challenges             map[string]bool
+}
+
+// CheckChallenges checks whether the list of challenges in the PA config
+// actually contains valid challenge names
+func (pc PAConfig) CheckChallenges() error {
+	for name := range pc.Challenges {
+		if !core.ValidChallenge(name) {
+			return fmt.Errorf("Invalid challenge in PA config: %s", name)
+		}
+	}
+	return nil
+}
+
+// SetDefaultChallengesIfEmpty sets a default list of challenges if no
+// challenges are enabled in the PA config.  The set of challenges specified
+// corresponds to the set that was hard-coded before these configuration
+// options were added.
+func (pc *PAConfig) SetDefaultChallengesIfEmpty() {
+	if len(pc.Challenges) == 0 {
+		pc.Challenges = map[string]bool{}
+		pc.Challenges[core.ChallengeTypeSimpleHTTP] = true
+		pc.Challenges[core.ChallengeTypeDVSNI] = true
+		pc.Challenges[core.ChallengeTypeHTTP01] = true
+		pc.Challenges[core.ChallengeTypeTLSSNI01] = true
+	}
 }
 
 // KeyConfig should contain either a File path to a PEM-format private key,
@@ -322,7 +349,7 @@ type OCSPUpdaterConfig struct {
 
 // AppShell contains CLI Metadata
 type AppShell struct {
-	Action func(Config)
+	Action func(Config, statsd.Statter, *blog.AuditLogger)
 	Config func(*cli.Context, Config) Config
 	App    *cli.App
 }
@@ -370,11 +397,42 @@ func (as *AppShell) Run() {
 			config = as.Config(c, config)
 		}
 
-		as.Action(config)
+		stats, auditlogger := StatsAndLogging(config.Statsd, config.Syslog)
+		auditlogger.Info(as.VersionString())
+
+		// If as.Action generates a panic, this will log it to syslog.
+		// AUDIT[ Error Conditions ] 9cc4d537-8534-4970-8665-4b382abe82f3
+		defer auditlogger.AuditPanic()
+
+		as.Action(config, stats, auditlogger)
 	}
 
 	err := as.App.Run(os.Args)
 	FailOnError(err, "Failed to run application")
+}
+
+// StatsAndLogging constructs a Statter and and AuditLogger based on its config
+// parameters, and return them both. Crashes if any setup fails.
+// Also sets the constructed AuditLogger as the default logger.
+func StatsAndLogging(statConf StatsdConfig, logConf SyslogConfig) (statsd.Statter, *blog.AuditLogger) {
+	stats, err := statsd.NewClient(statConf.Server, statConf.Prefix)
+	FailOnError(err, "Couldn't connect to statsd")
+
+	tag := path.Base(os.Args[0])
+	syslogger, err := syslog.Dial(
+		logConf.Network,
+		logConf.Server,
+		syslog.LOG_INFO|syslog.LOG_LOCAL0, // default, overridden by log calls
+		tag)
+	FailOnError(err, "Could not connect to Syslog")
+	level := int(syslog.LOG_DEBUG)
+	if logConf.StdoutLevel != nil {
+		level = *logConf.StdoutLevel
+	}
+	auditlogger, err := blog.NewAuditLogger(syslogger, stats, level)
+	FailOnError(err, "Could not connect to Syslog")
+	blog.SetAuditLogger(auditlogger)
+	return stats, auditlogger
 }
 
 // VersionString produces a friendly Application version string

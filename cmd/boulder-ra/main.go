@@ -22,40 +22,20 @@ import (
 
 func main() {
 	app := cmd.NewAppShell("boulder-ra", "Handles service orchestration")
-	app.Action = func(c cmd.Config) {
-		stats, err := statsd.NewClient(c.Statsd.Server, c.Statsd.Prefix)
-		cmd.FailOnError(err, "Couldn't connect to statsd")
-
-		// Set up logging
-		auditlogger, err := blog.Dial(c.Syslog.Network, c.Syslog.Server, c.Syslog.Tag, stats)
-		cmd.FailOnError(err, "Could not connect to Syslog")
-		auditlogger.Info(app.VersionString())
-
-		// AUDIT[ Error Conditions ] 9cc4d537-8534-4970-8665-4b382abe82f3
-		defer auditlogger.AuditPanic()
-
-		blog.SetAuditLogger(auditlogger)
+	app.Action = func(c cmd.Config, stats statsd.Statter, auditlogger *blog.AuditLogger) {
+		// Validate PA config and set defaults if needed
+		cmd.FailOnError(c.PA.CheckChallenges(), "Invalid PA configuration")
+		c.PA.SetDefaultChallengesIfEmpty()
 
 		go cmd.DebugServer(c.RA.DebugAddr)
 
 		paDbMap, err := sa.NewDbMap(c.PA.DBConnect)
 		cmd.FailOnError(err, "Couldn't connect to policy database")
-		pa, err := policy.NewPolicyAuthorityImpl(paDbMap, c.PA.EnforcePolicyWhitelist)
+		pa, err := policy.NewPolicyAuthorityImpl(paDbMap, c.PA.EnforcePolicyWhitelist, c.PA.Challenges)
 		cmd.FailOnError(err, "Couldn't create PA")
 
 		rateLimitPolicies, err := cmd.LoadRateLimitPolicies(c.RA.RateLimitPoliciesFilename)
 		cmd.FailOnError(err, "Couldn't load rate limit policies file")
-
-		rai := ra.NewRegistrationAuthorityImpl(clock.Default(), auditlogger, stats,
-			rateLimitPolicies, c.RA.MaxContactsPerRegistration)
-		rai.PA = pa
-		raDNSTimeout, err := time.ParseDuration(c.Common.DNSTimeout)
-		cmd.FailOnError(err, "Couldn't parse RA DNS timeout")
-		if !c.Common.DNSAllowLoopbackAddresses {
-			rai.DNSResolver = core.NewDNSResolverImpl(raDNSTimeout, []string{c.Common.DNSResolver})
-		} else {
-			rai.DNSResolver = core.NewTestDNSResolverImpl(raDNSTimeout, []string{c.Common.DNSResolver})
-		}
 
 		go cmd.ProfileCmd("RA", stats)
 
@@ -77,13 +57,29 @@ func main() {
 		sac, err := rpc.NewStorageAuthorityClient(saRPC)
 		cmd.FailOnError(err, "Unable to create SA client")
 
+		var dc *ra.DomainCheck
+		if c.RA.UseIsSafeDomain {
+			dc = &ra.DomainCheck{VA: &vac}
+		}
+
+		rai := ra.NewRegistrationAuthorityImpl(clock.Default(), auditlogger, stats,
+			dc, rateLimitPolicies, c.RA.MaxContactsPerRegistration)
+		rai.PA = pa
+		raDNSTimeout, err := time.ParseDuration(c.Common.DNSTimeout)
+		cmd.FailOnError(err, "Couldn't parse RA DNS timeout")
+		if !c.Common.DNSAllowLoopbackAddresses {
+			rai.DNSResolver = core.NewDNSResolverImpl(raDNSTimeout, []string{c.Common.DNSResolver})
+		} else {
+			rai.DNSResolver = core.NewTestDNSResolverImpl(raDNSTimeout, []string{c.Common.DNSResolver})
+		}
+
 		rai.VA = &vac
 		rai.CA = &cac
 		rai.SA = &sac
 
 		ras, err := rpc.NewAmqpRPCServer(c.AMQP.RA.Server, c.RA.MaxConcurrentRPCServerRequests, c)
 		cmd.FailOnError(err, "Unable to create RA RPC server")
-		rpc.NewRegistrationAuthorityServer(ras, &rai)
+		rpc.NewRegistrationAuthorityServer(ras, rai)
 
 		err = ras.Start(c)
 		cmd.FailOnError(err, "Unable to run RA RPC server")

@@ -20,20 +20,7 @@ import (
 
 func main() {
 	app := cmd.NewAppShell("boulder-va", "Handles challenge validation")
-	app.Action = func(c cmd.Config) {
-		stats, err := statsd.NewClient(c.Statsd.Server, c.Statsd.Prefix)
-		cmd.FailOnError(err, "Couldn't connect to statsd")
-
-		// Set up logging
-		auditlogger, err := blog.Dial(c.Syslog.Network, c.Syslog.Server, c.Syslog.Tag, stats)
-		cmd.FailOnError(err, "Could not connect to Syslog")
-		auditlogger.Info(app.VersionString())
-
-		// AUDIT[ Error Conditions ] 9cc4d537-8534-4970-8665-4b382abe82f3
-		defer auditlogger.AuditPanic()
-
-		blog.SetAuditLogger(auditlogger)
-
+	app.Action = func(c cmd.Config, stats statsd.Statter, auditlogger *blog.AuditLogger) {
 		go cmd.DebugServer(c.VA.DebugAddr)
 
 		go cmd.ProfileCmd("VA", stats)
@@ -52,7 +39,8 @@ func main() {
 		if c.VA.PortConfig.TLSPort != 0 {
 			pc.TLSPort = c.VA.PortConfig.TLSPort
 		}
-		vai := va.NewValidationAuthorityImpl(pc, stats, clock.Default())
+		sbc := newGoogleSafeBrowsing(c.VA.GoogleSafeBrowsing)
+		vai := va.NewValidationAuthorityImpl(pc, sbc, stats, clock.Default())
 		dnsTimeout, err := time.ParseDuration(c.Common.DNSTimeout)
 		cmd.FailOnError(err, "Couldn't parse DNS timeout")
 		if !c.Common.DNSAllowLoopbackAddresses {
