@@ -123,8 +123,6 @@ function build_letsencrypt() {
   cd $LETSENCRYPT_PATH
 
   run virtualenv --no-site-packages -p $PY ./venv
-  run ./venv/bin/pip install -U setuptools
-  run ./venv/bin/pip install -U pip
   run ./venv/bin/pip install -e acme -e . -e letsencrypt-apache -e letsencrypt-nginx
 
   cd -
