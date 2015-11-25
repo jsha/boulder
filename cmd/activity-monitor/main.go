@@ -47,7 +47,7 @@ func startMonitor(rpcCh *amqp.Channel, logger *blog.AuditLogger, stats statsd.St
 		cmd.FailOnError(err, "Could not determine hostname")
 	}
 
-	_, err = rpcCh.QueueDeclarePassive(
+	_, err = rpcCh.QueueDeclare(
 		QueueName,
 		AmqpDurable,
 		AmqpDeleteUnused,
