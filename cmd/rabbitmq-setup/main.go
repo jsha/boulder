@@ -10,12 +10,12 @@ package main
 
 import (
 	"fmt"
+	"os"
 
-	"github.com/letsencrypt/boulder/Godeps/_workspace/src/github.com/cactus/go-statsd-client/statsd"
+	"github.com/codegangsta/cli"
+	"github.com/streadway/amqp"
 
 	"github.com/letsencrypt/boulder/cmd"
-	blog "github.com/letsencrypt/boulder/log"
-	"github.com/letsencrypt/boulder/rpc"
 )
 
 // Constants for AMQP
@@ -30,8 +30,11 @@ const (
 	amqpNoWait       = false
 )
 
-func setup(c cmd.Config, _ statsd.Statter, _ *blog.AuditLogger) {
-	ch, err := rpc.AmqpChannel(c.ActivityMonitor.AMQP)
+func setup(c *cli.Context) {
+	server := c.GlobalString("server")
+	conn, err := amqp.Dial(server)
+	cmd.FailOnError(err, "Could not connect to AMQP")
+	ch, err := conn.Channel()
 	cmd.FailOnError(err, "Could not connect to AMQP")
 
 	err = ch.ExchangeDeclare(
@@ -70,8 +73,18 @@ func setup(c cmd.Config, _ statsd.Statter, _ *blog.AuditLogger) {
 }
 
 func main() {
-	app := cmd.NewAppShell("rabbitmq-setup", "Setup RabbitMQ")
+	app := cli.NewApp()
+	app.Name = "rabbitmq-setup"
+	app.Usage = "Sets up rabbitmq"
+	app.Version = cmd.Version()
+	app.Flags = []cli.Flag{
+		cli.StringFlag{
+			Name:  "server",
+			Value: "",
+			Usage: "RabbitMQ server URL",
+		},
+	}
 
 	app.Action = setup
-	app.Run()
+	app.Run(os.Args)
 }

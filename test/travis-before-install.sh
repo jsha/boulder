@@ -42,7 +42,7 @@ travis_retry go get \
  chmod +x $GOPATH/bin/goose) &
 
 # Set up rabbitmq exchange and activity monitor queue
-go run cmd/rabbitmq-setup/main.go  --config test/boulder-config.json &
+go run cmd/rabbitmq-setup/main.go --server amqp://guest:guest@localhost:5672 &
 
 # Wait for all the background commands to finish.
 wait

@@ -287,8 +287,8 @@ func (r rpcResponse) debugString() string {
 	return fmt.Sprintf("%s, RPCERR: %s", ret, r.Error)
 }
 
-// AmqpChannel sets a AMQP connection up using SSL if configuration is provided
-func AmqpChannel(conf *cmd.AMQPConfig) (*amqp.Channel, error) {
+// makeAmqpChannel sets a AMQP connection up using SSL if configuration is provided
+func makeAmqpChannel(conf *cmd.AMQPConfig) (*amqp.Channel, error) {
 	var conn *amqp.Connection
 	var err error
 
