@@ -82,8 +82,8 @@ func amqpSubscribe(ch amqpChannel, name string) (<-chan amqp.Delivery, error) {
 		nil)
 	if err != nil {
 		err = fmt.Errorf(
-			"Could not bind to queue [%s]. NOTE: You may need to delete %s to re-trigger the bind attempt after fixing permissions, or manually bind the queue to %s.",
-			name, name, routingKey)
+			"Could not bind to queue %s: %s. NOTE: You may need to delete it to re-trigger the bind attempt after fixing permissions, or manually bind the queue to %s.",
+			err, name, routingKey)
 		return nil, err
 	}
 
