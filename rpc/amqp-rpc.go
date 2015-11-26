@@ -57,59 +57,6 @@ const (
 	consumerName     = "boulder"
 )
 
-// AMQPDeclareExchange attempts to declare the configured AMQP exchange,
-// returning silently if already declared, erroring if nonexistant and
-// unable to create.
-func amqpDeclareExchange(conn *amqp.Connection) error {
-	var err error
-	var ch *amqp.Channel
-	log := blog.GetAuditLogger()
-
-	ch, err = conn.Channel()
-	if err != nil {
-		log.Crit(fmt.Sprintf("Could not connect Channel: %s", err))
-		return err
-	}
-
-	err = ch.ExchangeDeclarePassive(
-		AmqpExchange,
-		AmqpExchangeType,
-		AmqpDurable,
-		AmqpDeleteUnused,
-		AmqpInternal,
-		AmqpNoWait,
-		nil)
-	if err != nil {
-		log.Info(fmt.Sprintf("Exchange %s does not exist on AMQP server, creating.", AmqpExchange))
-
-		// Channel is invalid at this point, so recreate
-		ch.Close()
-		ch, err = conn.Channel()
-		if err != nil {
-			log.Crit(fmt.Sprintf("Could not connect Channel: %s", err))
-			return err
-		}
-
-		err = ch.ExchangeDeclare(
-			AmqpExchange,
-			AmqpExchangeType,
-			AmqpDurable,
-			AmqpDeleteUnused,
-			AmqpInternal,
-			AmqpNoWait,
-			nil)
-		if err != nil {
-			log.Crit(fmt.Sprintf("Could not declare exchange: %s", err))
-			ch.Close()
-			return err
-		}
-		log.Info(fmt.Sprintf("Created exchange %s.", AmqpExchange))
-	}
-
-	ch.Close()
-	return err
-}
-
 // A simplified way to declare and subscribe to an AMQP queue
 func amqpSubscribe(ch amqpChannel, name string) (<-chan amqp.Delivery, error) {
 	var err error
@@ -155,6 +102,10 @@ func amqpSubscribe(ch amqpChannel, name string) (<-chan amqp.Delivery, error) {
 	return msgs, nil
 }
 
+// DeliveryHandler is a function that will process an amqp.DeliveryHandler
+type DeliveryHandler func(amqp.Delivery)
+type messageHandler func([]byte) ([]byte, error)
+
 // AmqpRPCServer listens on a specified queue within an AMQP channel.
 // When messages arrive on that queue, it dispatches them based on type,
 // and returns the response to the ReplyTo queue.
@@ -162,10 +113,13 @@ func amqpSubscribe(ch amqpChannel, name string) (<-chan amqp.Delivery, error) {
 // To implement specific functionality, using code should use the Handle
 // method to add specific actions.
 type AmqpRPCServer struct {
-	serverQueue                    string
-	connection                     *amqpConnector
-	log                            *blog.AuditLogger
-	dispatchTable                  map[string]func([]byte) ([]byte, error)
+	serverQueue    string
+	connection     *amqpConnector
+	log            *blog.AuditLogger
+	handleDelivery DeliveryHandler
+	// Servers that just care about messages (method + body) add entries to
+	// dispatchTable
+	dispatchTable                  map[string]messageHandler
 	connected                      bool
 	done                           bool
 	mu                             sync.RWMutex
@@ -194,7 +148,7 @@ func NewAmqpRPCServer(amqpConf *cmd.AMQPConfig, maxConcurrentRPCServerRequests i
 		serverQueue:                    amqpConf.ServiceQueue,
 		connection:                     newAMQPConnector(amqpConf.ServiceQueue, reconnectBase, reconnectMax),
 		log:                            log,
-		dispatchTable:                  make(map[string]func([]byte) ([]byte, error)),
+		dispatchTable:                  make(map[string]messageHandler),
 		maxConcurrentRPCServerRequests: maxConcurrentRPCServerRequests,
 		clk:   clock.Default(),
 		stats: stats,
@@ -202,8 +156,19 @@ func NewAmqpRPCServer(amqpConf *cmd.AMQPConfig, maxConcurrentRPCServerRequests i
 }
 
 // Handle registers a function to handle a particular method.
-func (rpc *AmqpRPCServer) Handle(method string, handler func([]byte) ([]byte, error)) {
+func (rpc *AmqpRPCServer) Handle(method string, handler messageHandler) {
+	rpc.mu.Lock()
 	rpc.dispatchTable[method] = handler
+	rpc.mu.Unlock()
+}
+
+// HandleDeliveries allows a server to receive amqp.Delivery directly (e.g.
+// ActivityMonitor), it can provide one of these. Otherwise processMessage is
+// used by default.
+func (rpc *AmqpRPCServer) HandleDeliveries(handler DeliveryHandler) {
+	rpc.mu.Lock()
+	rpc.handleDelivery = handler
+	rpc.mu.Unlock()
 }
 
 // rpcError is a JSON wrapper for error as it cannot be un/marshalled
@@ -387,11 +352,6 @@ func AmqpChannel(conf *cmd.AMQPConfig) (*amqp.Channel, error) {
 		return nil, err
 	}
 
-	err = amqpDeclareExchange(conn)
-	if err != nil {
-		return nil, err
-	}
-
 	return conn.Channel()
 }
 
@@ -472,7 +432,11 @@ func (rpc *AmqpRPCServer) Start(c *cmd.AMQPConfig) error {
 					atomic.AddInt64(&rpc.currentGoroutines, 1)
 					defer atomic.AddInt64(&rpc.currentGoroutines, -1)
 					startedProcessing := rpc.clk.Now()
-					rpc.processMessage(msg)
+					if rpc.handleDelivery != nil {
+						rpc.handleDelivery(msg)
+					} else {
+						rpc.processMessage(msg)
+					}
 					rpc.stats.TimingDuration(fmt.Sprintf("RPC.ServerProcessingLatency.%s", msg.Type), time.Since(startedProcessing), 1.0)
 				}()
 			} else {

@@ -27,6 +27,9 @@ travis_retry go get \
  zcat goose.gz > $GOPATH/bin/goose &&
  chmod +x $GOPATH/bin/goose) &
 
+# Set up rabbitmq exchange and activity monitor queue
+go run cmd/rabbitmq-setup/main.go  --config test/boulder-config.json &
+
 # Wait for all the background commands to finish.
 wait
 
