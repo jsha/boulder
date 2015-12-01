@@ -29,7 +29,7 @@ const (
 	amqpExchange     = "boulder"
 	amqpExchangeType = "topic"
 	amqpInternal     = false
-	amqpDurable      = false
+	amqpDurable      = true
 	amqpDeleteUnused = false
 	amqpExclusive    = false
 	amqpNoWait       = false
@@ -54,7 +54,7 @@ func main() {
 
 	_, err = ch.QueueDeclare(
 		monitorQueueName,
-		amqpDurable,
+		false,
 		amqpDeleteUnused,
 		amqpExclusive,
 		amqpNoWait,
