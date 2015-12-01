@@ -212,6 +212,10 @@ def run_client_tests():
     if subprocess.Popen(cmd, shell=True, cwd=root, executable='/bin/bash').wait() != 0:
         die(ExitStatus.PythonFailure)
 
+def run_mailer():
+    smtpd = subprocess.Popen("./test/test_smtpd.py", shell=True)
+    subprocess.check_output("./bin/expiration-mailer --config test/configs/mailer.json",
+        shell=True, executable='/bin/bash')
 
 @atexit.register
 def cleanup():
