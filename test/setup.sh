@@ -1,8 +1,8 @@
 #!/bin/bash
 
 go get \
-  github.com/golang/tools/cmd/vet \
-  github.com/golang/tools/cmd/cover \
+  golang.org/x/tools/cmd/vet \
+  golang.org/x/tools/cmd/cover \
   github.com/golang/lint/golint \
   github.com/mattn/goveralls \
   github.com/modocache/gover \
