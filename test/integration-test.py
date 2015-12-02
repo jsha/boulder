@@ -193,13 +193,13 @@ def run_node_test():
 
     verify_ct_submission(1, "http://localhost:4500/submissions")
 
-    #if subprocess.Popen('''
-        #node revoke.js %s %s http://localhost:4000/acme/revoke-cert
-        #''' % (cert_file, key_file), shell=True).wait() != 0:
-        #print("\nRevoking failed")
-        #die(ExitStatus.NodeFailure)
+    if subprocess.Popen('''
+        node revoke.js %s %s http://localhost:4000/acme/revoke-cert
+        ''' % (cert_file, key_file), shell=True).wait() != 0:
+        print("\nRevoking failed")
+        die(ExitStatus.NodeFailure)
 
-    #wait_for_ocsp_revoked(cert_file_pem, "../test-ca.pem", ee_ocsp_url)
+    wait_for_ocsp_revoked(cert_file_pem, "../test-ca.pem", ee_ocsp_url)
     os.chdir('../..')
     return 0
 
