@@ -14,4 +14,4 @@ class SingleDebuggingServer(smtpd.SMTPServer):
 
 server = SingleDebuggingServer(('127.0.0.1', 1025))
 
-asyncore.loop(timeout=10)
+asyncore.loop(timeout=5, count=1)
