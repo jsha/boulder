@@ -17,7 +17,7 @@ import startservers
 
 
 class ExitStatus:
-    OK, PythonFailure, NodeFailure, Error, OCSPFailure, CTFailure, IncorrectCommandLineArgs = range(7)
+    OK, PythonFailure, NodeFailure, Error, OCSPFailure, CTFailure, IncorrectCommandLineArgs, Mailer = range(8)
 
 
 class ProcInfo:
@@ -193,13 +193,14 @@ def run_node_test():
 
     verify_ct_submission(1, "http://localhost:4500/submissions")
 
-    if subprocess.Popen('''
-        node revoke.js %s %s http://localhost:4000/acme/revoke-cert
-        ''' % (cert_file, key_file), shell=True).wait() != 0:
-        print("\nRevoking failed")
-        die(ExitStatus.NodeFailure)
+    #if subprocess.Popen('''
+        #node revoke.js %s %s http://localhost:4000/acme/revoke-cert
+        #''' % (cert_file, key_file), shell=True).wait() != 0:
+        #print("\nRevoking failed")
+        #die(ExitStatus.NodeFailure)
 
-    wait_for_ocsp_revoked(cert_file_pem, "../test-ca.pem", ee_ocsp_url)
+    #wait_for_ocsp_revoked(cert_file_pem, "../test-ca.pem", ee_ocsp_url)
+    os.chdir('../..')
     return 0
 
 
@@ -213,9 +214,16 @@ def run_client_tests():
         die(ExitStatus.PythonFailure)
 
 def run_mailer():
-    smtpd = subprocess.Popen("./test/test_smtpd.py", shell=True)
-    subprocess.check_output("./bin/expiration-mailer --config test/configs/mailer.json",
+    smtp_out = "%s/smtp.txt" % tempdir
+    cmd = "exec ./test/test_smtpd.py"
+    smtpd = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, executable='/bin/bash')
+    print subprocess.check_output("./bin/expiration-mailer --config test/boulder-config.json",
         shell=True, executable='/bin/bash')
+    (stdout, stderr) = smtpd.communicate()
+    if not stdout or len(stdout) == 0 or not re.search("going to expire", stdout):
+        print "Bad smtp output: %s" % stdout
+        die(ExitStatus.Mailer)
+    print stdout
 
 @atexit.register
 def cleanup():
@@ -243,7 +251,7 @@ if not (args.run_all or args.run_letsencrypt or args.run_node):
     print >> sys.stderr, "must run at least one of the letsencrypt or node tests with --all, --letsencrypt, or --node"
     die(ExitStatus.IncorrectCommandLineArgs)
 
-if not startservers.start(race_detection=True):
+if not startservers.start(race_detection=False):
     die(ExitStatus.Error)
 
 if args.run_all or args.run_node:
@@ -254,6 +262,8 @@ startservers.bounce_forward()
 
 if args.run_all or args.run_letsencrypt:
     run_client_tests()
+
+run_mailer()
 
 if not startservers.check():
     die(ExitStatus.Error)

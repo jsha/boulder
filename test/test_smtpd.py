@@ -2,7 +2,16 @@
 """Receive a single SMTP message and print it."""
 import smtpd
 import asyncore
+import sys
 
-server = smtpd.DebuggingServer(('127.0.0.1', 1025), None)
+class SingleDebuggingServer(smtpd.SMTPServer):
+    def __init__(self, local):
+        smtpd.SMTPServer.__init__(self, local, None)
 
-asyncore.loop()
+    def process_message(self, peer, mailfrom, rcpttos, data):
+        print data
+        sys.exit(0)
+
+server = SingleDebuggingServer(('127.0.0.1', 1025))
+
+asyncore.loop(timeout=10)
