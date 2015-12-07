@@ -216,6 +216,9 @@ func (ra *RegistrationAuthorityImpl) validateContacts(contacts []*core.AcmeURL) 
 	}
 
 	for _, contact := range contacts {
+		if contact == nil {
+			return core.MalformedRequestError("Invalid contact")
+		}
 		switch contact.Scheme {
 		case "tel":
 			continue
@@ -266,7 +269,6 @@ func (ra *RegistrationAuthorityImpl) NewAuthorization(request core.Authorization
 
 	// Check that the identifier is present and appropriate
 	if err = ra.PA.WillingToIssue(identifier, regID); err != nil {
-		err = core.UnauthorizedError(err.Error())
 		return authz, err
 	}
 

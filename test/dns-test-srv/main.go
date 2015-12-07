@@ -20,7 +20,6 @@ import (
 var listen = flag.String("listen", ":8053", "port (and optionally address) to listen on")
 
 func dnsHandler(w dns.ResponseWriter, r *dns.Msg) {
-	defer w.Close()
 	m := new(dns.Msg)
 	m.SetReply(r)
 	m.Compress = false

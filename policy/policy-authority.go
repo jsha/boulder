@@ -6,7 +6,7 @@
 package policy
 
 import (
-	"errors"
+	"math/rand"
 	"net"
 	"regexp"
 	"strings"
@@ -25,6 +25,7 @@ type PolicyAuthorityImpl struct {
 
 	EnforceWhitelist  bool
 	enabledChallenges map[string]bool
+	pseudoRNG         *rand.Rand
 }
 
 // NewPolicyAuthorityImpl constructs a Policy Authority.
@@ -43,6 +44,8 @@ func NewPolicyAuthorityImpl(dbMap *gorp.DbMap, enforceWhitelist bool, challengeT
 		DB:                padb,
 		EnforceWhitelist:  enforceWhitelist,
 		enabledChallenges: challengeTypes,
+		// We don't need real randomness for this.
+		pseudoRNG: rand.New(rand.NewSource(99)),
 	}
 
 	return &pa, nil
@@ -90,31 +93,22 @@ func suffixMatch(labels []string, suffixSet map[string]bool, properSuffix bool) 
 	return false
 }
 
-// InvalidIdentifierError indicates that we didn't understand the IdentifierType
-// provided.
-type InvalidIdentifierError struct{}
-
-// SyntaxError indicates that the user input was not well formatted.
-type SyntaxError struct{}
-
-// NonPublicError indicates that one or more identifiers were not on the public
-// Internet.
-type NonPublicError struct{}
-
-// ErrICANNTLD indicates that one or more identifiers was an ICANN-managed TLD
-var ErrICANNTLD = errors.New("Name is an ICANN TLD")
-
-// ErrBlacklisted indicates we have blacklisted one or more of these
-// identifiers.
-var ErrBlacklisted = errors.New("Name is blacklisted")
-
-// ErrNotWhitelisted indicates we have not whitelisted one or more of these
-// identifiers.
-var ErrNotWhitelisted = errors.New("Name is not whitelisted")
-
-func (e InvalidIdentifierError) Error() string { return "Invalid identifier type" }
-func (e SyntaxError) Error() string            { return "Syntax error" }
-func (e NonPublicError) Error() string         { return "Name does not end in a public suffix" }
+var (
+	errInvalidIdentifier   = core.MalformedRequestError("Invalid identifier type")
+	errNonPublic           = core.MalformedRequestError("Name does not end in a public suffix")
+	errICANNTLD            = core.MalformedRequestError("Name is an ICANN TLD")
+	errBlacklisted         = core.MalformedRequestError("Name is blacklisted")
+	errNotWhitelisted      = core.MalformedRequestError("Name is not whitelisted")
+	errInvalidDNSCharacter = core.MalformedRequestError("Invalid character in DNS name")
+	errNameTooLong         = core.MalformedRequestError("DNS name too long")
+	errIPAddress           = core.MalformedRequestError("Issuance for IP addresses not supported")
+	errTooManyLabels       = core.MalformedRequestError("DNS name has too many labels")
+	errEmptyName           = core.MalformedRequestError("DNS name was empty")
+	errTooFewLabels        = core.MalformedRequestError("DNS name does not have enough labels")
+	errLabelTooShort       = core.MalformedRequestError("DNS label is too short")
+	errLabelTooLong        = core.MalformedRequestError("DNS label is too long")
+	errIDNNotSupported     = core.MalformedRequestError("Internationalized domain names (starting with xn--) not yet supported")
+)
 
 // WillingToIssue determines whether the CA is willing to issue for the provided
 // identifier. It expects domains in id to be lowercase to prevent mismatched
@@ -135,54 +129,62 @@ func (e NonPublicError) Error() string         { return "Name does not end in a 
 //  * MUST NOT be a label-wise suffix match for a name on the black list,
 //    where comparison is case-independent (normalized to lower case)
 //
-// XXX: Is there any need for this method to be constant-time?  We're
-//      going to refuse to issue anyway, but timing could leak whether
-//      names are on the blacklist.
+// If WillingToIssue returns an error, it will be of type MalformedRequestError.
 func (pa PolicyAuthorityImpl) WillingToIssue(id core.AcmeIdentifier, regID int64) error {
 	if id.Type != core.IdentifierDNS {
-		return InvalidIdentifierError{}
+		return errInvalidIdentifier
 	}
 	domain := id.Value
 
+	if domain == "" {
+		return errEmptyName
+	}
+
 	for _, ch := range []byte(domain) {
 		if !isDNSCharacter(ch) {
-			return SyntaxError{}
+			return errInvalidDNSCharacter
 		}
 	}
 
 	if len(domain) > 255 {
-		return SyntaxError{}
+		return errNameTooLong
 	}
 
 	if ip := net.ParseIP(domain); ip != nil {
-		return SyntaxError{}
+		return errIPAddress
 	}
 
 	labels := strings.Split(domain, ".")
-	if len(labels) > maxLabels || len(labels) < 2 {
-		return SyntaxError{}
+	if len(labels) > maxLabels {
+		return errTooManyLabels
+	}
+	if len(labels) < 2 {
+		return errTooFewLabels
 	}
 	for _, label := range labels {
-		if len(label) < 1 || len(label) > maxLabelLength {
-			return SyntaxError{}
+		if len(label) < 1 {
+			return errLabelTooShort
+		}
+		if len(label) > maxLabelLength {
+			return errLabelTooLong
 		}
 
 		if !dnsLabelRegexp.MatchString(label) {
-			return SyntaxError{}
+			return errInvalidDNSCharacter
 		}
 
 		if punycodeRegexp.MatchString(label) {
-			return SyntaxError{}
+			return errIDNNotSupported
 		}
 	}
 
 	// Names must end in an ICANN TLD, but they must not be equal to an ICANN TLD.
 	icannTLD, err := publicsuffix.ICANNTLD(domain)
 	if err != nil {
-		return NonPublicError{}
+		return errNonPublic
 	}
 	if icannTLD == domain {
-		return ErrICANNTLD
+		return errICANNTLD
 	}
 
 	// Use the domain whitelist if the PA has been asked to. However, if the
@@ -206,9 +208,8 @@ func (pa PolicyAuthorityImpl) WillingToIssue(id core.AcmeIdentifier, regID int64
 // acceptable for the given identifier.
 //
 // Note: Current implementation is static, but future versions may not be.
-func (pa PolicyAuthorityImpl) ChallengesFor(identifier core.AcmeIdentifier, accountKey *jose.JsonWebKey) (challenges []core.Challenge, combinations [][]int, err error) {
-	challenges = []core.Challenge{}
-	combinations = [][]int{}
+func (pa PolicyAuthorityImpl) ChallengesFor(identifier core.AcmeIdentifier, accountKey *jose.JsonWebKey) ([]core.Challenge, [][]int, error) {
+	challenges := []core.Challenge{}
 
 	// TODO(https://github.com/letsencrypt/boulder/issues/894): Remove this block
 	if pa.enabledChallenges[core.ChallengeTypeSimpleHTTP] {
@@ -232,9 +233,20 @@ func (pa PolicyAuthorityImpl) ChallengesFor(identifier core.AcmeIdentifier, acco
 		challenges = append(challenges, core.DNSChallenge01(accountKey))
 	}
 
-	combinations = make([][]int, len(challenges))
-	for i := range combinations {
+	// We shuffle the challenges and combinations to prevent ACME clients from
+	// relying on the specific order that boulder returns them in.
+	shuffled := make([]core.Challenge, len(challenges))
+	combinations := make([][]int, len(challenges))
+
+	for i, challIdx := range pa.pseudoRNG.Perm(len(challenges)) {
+		shuffled[i] = challenges[challIdx]
 		combinations[i] = []int{i}
 	}
-	return
+
+	shuffledCombos := make([][]int, len(combinations))
+	for i, comboIdx := range pa.pseudoRNG.Perm(len(combinations)) {
+		shuffledCombos[i] = combinations[comboIdx]
+	}
+
+	return shuffled, shuffledCombos, nil
 }
