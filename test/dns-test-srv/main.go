@@ -55,6 +55,19 @@ func dnsHandler(w dns.ResponseWriter, r *dns.Msg) {
 			record.A = net.ParseIP(fakeDNS)
 
 			m.Answer = append(m.Answer, record)
+		case dns.TypeCAA:
+			if strings.Contains(q.Name, "reject") {
+				record := new(dns.CAA)
+				record.Hdr = dns.RR_Header{
+					Name:   q.Name,
+					Rrtype: dns.TypeCAA,
+					Class:  dns.ClassINET,
+					Ttl:    86400,
+				}
+				record.Value = "noissue"
+
+				m.Answer = append(m.Answer, record)
+			}
 		}
 	}
 
