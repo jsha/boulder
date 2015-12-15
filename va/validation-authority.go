@@ -180,11 +180,9 @@ func (va *ValidationAuthorityImpl) fetchHTTP(identifier core.AcmeIdentifier, pat
 
 	dialer, prob := va.resolveAndConstructDialer(host, port)
 	dialer.record.URL = url.String()
-	// We use a pointer to a slice rather than a slice directly, because we need
-	// to be able to append to it in the logRedirect below.
-	validationRecords := &[]core.ValidationRecord{dialer.record}
+	validationRecords := []core.ValidationRecord{dialer.record}
 	if prob != nil {
-		return nil, *validationRecords, prob
+		return nil, validationRecords, prob
 	}
 
 	tr := &http.Transport{
@@ -211,7 +209,7 @@ func (va *ValidationAuthorityImpl) fetchHTTP(identifier core.AcmeIdentifier, pat
 	httpRequest.Header.Set("Accept", "*/*")
 
 	logRedirect := func(req *http.Request, via []*http.Request) error {
-		if len(*validationRecords) >= maxRedirect {
+		if len(validationRecords) >= maxRedirect {
 			return fmt.Errorf("Too many redirects")
 		}
 
@@ -241,7 +239,7 @@ func (va *ValidationAuthorityImpl) fetchHTTP(identifier core.AcmeIdentifier, pat
 
 		dialer, err := va.resolveAndConstructDialer(reqHost, reqPort)
 		dialer.record.URL = req.URL.String()
-		*validationRecords = append(*validationRecords, dialer.record)
+		validationRecords = append(validationRecords, dialer.record)
 		if err != nil {
 			return err
 		}
@@ -256,8 +254,8 @@ func (va *ValidationAuthorityImpl) fetchHTTP(identifier core.AcmeIdentifier, pat
 	}
 	httpResponse, err := client.Do(httpRequest)
 	if err != nil {
-		va.log.Debug(strings.Join([]string{challenge.Error.Error(), err.Error()}, ": "))
-		return nil, *validationRecords, &probs.ProblemDetails{
+		va.log.Debug(err.Error())
+		return nil, validationRecords, &probs.ProblemDetails{
 			Type:   parseHTTPConnError(err),
 			Detail: fmt.Sprintf("Could not connect to %s", url),
 		}
@@ -265,7 +263,7 @@ func (va *ValidationAuthorityImpl) fetchHTTP(identifier core.AcmeIdentifier, pat
 	defer httpResponse.Body.Close()
 
 	if httpResponse.StatusCode != 200 {
-		return nil, *validationRecords, &probs.ProblemDetails{
+		return nil, validationRecords, &probs.ProblemDetails{
 			Type: probs.UnauthorizedProblem,
 			Detail: fmt.Sprintf("Invalid response from %s [%s]: %d",
 				url.String(), dialer.record.AddressUsed, httpResponse.StatusCode),
@@ -274,12 +272,12 @@ func (va *ValidationAuthorityImpl) fetchHTTP(identifier core.AcmeIdentifier, pat
 
 	body, err := ioutil.ReadAll(httpResponse.Body)
 	if err != nil {
-		return nil, *validationRecords, &probs.ProblemDetails{
+		return nil, validationRecords, &probs.ProblemDetails{
 			Type:   probs.UnauthorizedProblem,
 			Detail: fmt.Sprintf("Error reading HTTP response body: %v", err),
 		}
 	}
-	return body, *validationRecords, nil
+	return body, validationRecords, nil
 }
 
 func (va *ValidationAuthorityImpl) validateTLSWithZName(identifier core.AcmeIdentifier, challenge core.Challenge, zName string) ([]core.ValidationRecord, *probs.ProblemDetails) {
@@ -298,7 +296,7 @@ func (va *ValidationAuthorityImpl) validateTLSWithZName(identifier core.AcmeIden
 	// Make a connection with SNI = nonceName
 	portString := strconv.Itoa(va.tlsPort)
 	hostPort := net.JoinHostPort(addr.String(), portString)
-	challenge.ValidationRecord[0].Port = portString
+	validationRecords[0].Port = portString
 	va.log.Notice(fmt.Sprintf("%s [%s] Attempting to validate for %s %s", challenge.Type, identifier, hostPort, zName))
 	conn, err := tls.DialWithDialer(&net.Dialer{Timeout: validationTimeout}, "tcp", hostPort, &tls.Config{
 		ServerName:         zName,
