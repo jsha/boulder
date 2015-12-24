@@ -206,8 +206,7 @@ func (dnsResolver *DNSResolverImpl) LookupTXT(hostname string) ([]string, error)
 		return nil, err
 	}
 	if r.Rcode != dns.RcodeSuccess {
-		err = fmt.Errorf("DNS failure: %d-%s for TXT query", r.Rcode, dns.RcodeToString[r.Rcode])
-		return nil, err
+		return nil, &dnsError{r.Rcode, dns.TypeTXT, hostname}
 	}
 
 	for _, answer := range r.Answer {
@@ -241,8 +240,7 @@ func (dnsResolver *DNSResolverImpl) LookupHost(hostname string) ([]net.IP, error
 		return addrs, err
 	}
 	if r.Rcode != dns.RcodeSuccess {
-		err = fmt.Errorf("DNS failure: %d-%s for A query", r.Rcode, dns.RcodeToString[r.Rcode])
-		return nil, err
+		return nil, &dnsError{r.Rcode, dns.TypeA, hostname}
 	}
 
 	for _, answer := range r.Answer {
@@ -290,8 +288,7 @@ func (dnsResolver *DNSResolverImpl) LookupMX(hostname string) ([]string, error) 
 		return nil, err
 	}
 	if r.Rcode != dns.RcodeSuccess {
-		err = fmt.Errorf("DNS failure: %d-%s for MX query", r.Rcode, dns.RcodeToString[r.Rcode])
-		return nil, err
+		return nil, &dnsError{r.Rcode, dns.TypeMX, hostname}
 	}
 
 	var results []string

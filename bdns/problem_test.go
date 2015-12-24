@@ -10,6 +10,8 @@ import (
 	"net"
 	"testing"
 
+	"github.com/letsencrypt/boulder/Godeps/_workspace/src/github.com/miekg/dns"
+
 	"github.com/letsencrypt/boulder/mocks"
 	"github.com/letsencrypt/boulder/probs"
 )
@@ -28,6 +30,9 @@ func TestProblemDetailsFromDNSError(t *testing.T) {
 		}, {
 			&net.OpError{Err: errors.New("some net error")},
 			detailDNSNetFailure,
+		}, {
+			&dnsError{dns.RcodeNameError, dns.TypeTXT, "hostname"},
+			"DNS problem: NXDOMAIN looking up TXT for hostname",
 		},
 	}
 	for _, tc := range testCases {

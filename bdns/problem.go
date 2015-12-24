@@ -6,10 +6,26 @@
 package bdns
 
 import (
+	"fmt"
 	"net"
 
+	"github.com/letsencrypt/boulder/Godeps/_workspace/src/github.com/miekg/dns"
 	"github.com/letsencrypt/boulder/probs"
 )
+
+type dnsError struct {
+	rCode      int
+	recordType uint16
+	hostname   string
+	// TODO(jsha@eff.org): The authority section is available in the Ns field of
+	// dns.Msg. We should include that in this struct and print it as part of the
+	// error detail.
+}
+
+func (d dnsError) Error() string {
+	return fmt.Sprintf("DNS problem: %s looking up %s for %s", dns.RcodeToString[d.rCode],
+		dns.TypeToString[d.recordType], d.hostname)
+}
 
 const detailDNSTimeout = "DNS query timed out"
 const detailDNSNetFailure = "DNS networking error"
@@ -27,6 +43,8 @@ func ProblemDetailsFromDNSError(err error) *probs.ProblemDetails {
 		} else {
 			problem.Detail = detailDNSNetFailure
 		}
+	} else if dnsErr, ok := err.(*dnsError); ok {
+		problem.Detail = dnsErr.Error()
 	} else {
 		problem.Detail = detailServerFailure
 	}
