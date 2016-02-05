@@ -23,16 +23,13 @@ GRANT SELECT,INSERT,UPDATE ON certificateStatus TO 'sa'@'localhost';
 GRANT SELECT,INSERT ON issuedNames TO 'sa'@'localhost';
 GRANT SELECT,INSERT ON sctReceipts TO 'sa'@'localhost';
 GRANT SELECT,INSERT ON deniedCSRs TO 'sa'@'localhost';
-GRANT INSERT ON ocspResponses TO 'sa'@'localhost';
 GRANT SELECT,INSERT,UPDATE ON registrations TO 'sa'@'localhost';
 GRANT SELECT,INSERT,UPDATE ON challenges TO 'sa'@'localhost';
 
 -- OCSP Responder
 GRANT SELECT ON certificateStatus TO 'ocsp_resp'@'localhost';
-GRANT SELECT ON ocspResponses TO 'ocsp_resp'@'localhost';
 
 -- OCSP Generator Tool (Updater)
-GRANT INSERT ON ocspResponses TO 'ocsp_update'@'localhost';
 GRANT SELECT ON certificates TO 'ocsp_update'@'localhost';
 GRANT SELECT,UPDATE ON certificateStatus TO 'ocsp_update'@'localhost';
 GRANT SELECT ON sctReceipts TO 'ocsp_update'@'localhost';
