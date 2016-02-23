@@ -4,7 +4,7 @@ totalCertificates:
   threshold: 100000
 certificatesPerName:
   window: 2160h
-  threshold: 2
+  threshold: 2000
   overrides:
     ratelimit.me: 1
     # Hostnames used by the letsencrypt client integration test.
