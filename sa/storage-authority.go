@@ -738,9 +738,9 @@ func (ssa *SQLStorageAuthority) AddCertificate(certDER []byte, regID int64) (dig
 		RevokedReason:      0,
 		LockCol:            0,
 	}
-	issuedNames := make([]issuedNameModel, len(parsedCertificate.DNSNames))
+	issuedNames := make([]interface{}, len(parsedCertificate.DNSNames))
 	for i, name := range parsedCertificate.DNSNames {
-		issuedNames[i] = issuedNameModel{
+		issuedNames[i] = &issuedNameModel{
 			ReversedName: core.ReverseName(name),
 			Serial:       serial,
 			NotBefore:    parsedCertificate.NotBefore,
@@ -765,12 +765,10 @@ func (ssa *SQLStorageAuthority) AddCertificate(certDER []byte, regID int64) (dig
 		return
 	}
 
-	for _, issuedName := range issuedNames {
-		err = tx.Insert(&issuedName)
-		if err != nil {
-			tx.Rollback()
-			return
-		}
+	err = tx.Insert(issuedNames...)
+	if err != nil {
+		tx.Rollback()
+		return
 	}
 
 	err = addFQDNSet(
