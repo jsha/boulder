@@ -1,11 +1,12 @@
 package reloader
 
 import (
+	"fmt"
 	"io/ioutil"
 	"os"
 	"time"
 
-	"github.com/letsencrypt/boulder/Godeps/_workspace/src/github.com/jmhodges/clock"
+	"github.com/jmhodges/clock"
 )
 
 var clk = clock.Default()
@@ -28,17 +29,23 @@ func New(filename string, callback func([]byte, error) error) error {
 	loop := func() {
 		for {
 			clk.Sleep(1 * time.Second)
+			fmt.Println("tick")
 			currentFileInfo, err := os.Stat(filename)
 			if err != nil {
+				fmt.Printf("err %s\n", err)
 				callback(nil, err)
 				continue
 			}
+			fmt.Printf("times are changin' %s %s \n", currentFileInfo.ModTime(), fileInfo.ModTime())
 			if currentFileInfo.ModTime().After(fileInfo.ModTime()) {
+				fmt.Printf("reloading\n")
 				b, err := ioutil.ReadFile(filename)
 				if err != nil {
+					fmt.Printf("err %s\n", err)
 					callback(nil, err)
 					continue
 				}
+				fmt.Printf("success %s\n", string(b))
 				fileInfo = currentFileInfo
 				callback(b, nil)
 			}

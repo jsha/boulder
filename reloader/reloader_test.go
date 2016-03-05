@@ -7,6 +7,8 @@ import (
 	"reflect"
 	"testing"
 	"time"
+
+	"github.com/jmhodges/clock"
 )
 
 func noop([]byte, error) error {
@@ -54,7 +56,10 @@ func TestFirstSuccess(t *testing.T) {
 }
 
 func TestReload(t *testing.T) {
+	fakeClock := clock.NewBlockingFake()
+	clk = fakeClock
 	filename := os.TempDir() + "/test-reload.txt"
+	os.Remove(filename)
 	ioutil.WriteFile(filename, []byte("first body"), 0644)
 
 	var bodies []string
@@ -68,21 +73,24 @@ func TestReload(t *testing.T) {
 		return nil
 	})
 	if err != nil {
-		t.Fatalf("Expected New to succeed.")
+		t.Fatalf("Expected New to succeed, got: %s", err)
 	}
 	<-reloads
 	expected := []string{"first body"}
 	if !reflect.DeepEqual(bodies, expected) {
 		t.Errorf("Expected bodies = %#v, got %#v", expected, bodies)
 	}
-	time.Sleep(2 * time.Second)
+	fakeClock.Add(2 * time.Second)
 	if !reflect.DeepEqual(bodies, expected) {
 		t.Errorf("Expected bodies = %#v, got %#v", expected, bodies)
 	}
 
+	// Do a real OS sleep in addition to the fakeClock Add, so that the
+	// modification time on the file is increased when we write it again.
+	time.Sleep(10 * time.Millisecond)
 	// Write to the file, expect a reload.
 	ioutil.WriteFile(filename, []byte("second body"), 0644)
-	time.Sleep(2 * time.Second)
+	fakeClock.Add(2 * time.Second)
 	select {
 	case <-reloads:
 	case <-time.After(5 * time.Second):
@@ -93,15 +101,21 @@ func TestReload(t *testing.T) {
 		t.Errorf("Expected bodies = %#v, got %#v", expected, bodies)
 	}
 
-	time.Sleep(2 * time.Second)
+	fakeClock.Add(2 * time.Second)
 	if !reflect.DeepEqual(bodies, expected) {
 		t.Errorf("Expected bodies = %#v, got %#v", expected, bodies)
 	}
 }
 
 func TestReloadFailure(t *testing.T) {
-	filename := os.TempDir() + "/test-reload.txt"
-	ioutil.WriteFile(filename, []byte("first body"), 0644)
+	fakeClock := clock.NewBlockingFake()
+	clk = fakeClock
+	filename := os.TempDir() + "/test-reload-failure.txt"
+	os.Remove(filename)
+	err := ioutil.WriteFile(filename, []byte("first body"), 0644)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	type res struct {
 		b   []byte
@@ -109,7 +123,7 @@ func TestReloadFailure(t *testing.T) {
 	}
 
 	reloads := make(chan res, 1)
-	err := New(filename, func(b []byte, err error) error {
+	err = New(filename, func(b []byte, err error) error {
 		reloads <- res{b, err}
 		return nil
 	})
@@ -117,8 +131,12 @@ func TestReloadFailure(t *testing.T) {
 		t.Fatalf("Expected New to succeed.")
 	}
 	<-reloads
-	os.Remove(filename)
-	time.Sleep(2 * time.Second)
+	err = os.Remove(filename)
+	if err != nil {
+		t.Fatal("removing %s: %s", filename, err)
+	}
+	//time.Sleep(15 * time.Millisecond)
+	fakeClock.Add(2 * time.Second)
 	select {
 	case r := <-reloads:
 		if r.err == nil {
@@ -128,9 +146,14 @@ func TestReloadFailure(t *testing.T) {
 		t.Fatalf("timed out waiting for reload")
 	}
 
+	// Do a real OS sleep in addition to the fakeClock Add, so that the
+	// modification time on the file is increased when we write it again.
+	time.Sleep(15 * time.Millisecond)
+
 	// Create a file with no permissions
 	ioutil.WriteFile(filename, []byte("second body"), 0)
-	time.Sleep(2 * time.Second)
+
+	fakeClock.Add(2 * time.Second)
 	select {
 	case r := <-reloads:
 		if r.err == nil {
@@ -148,6 +171,7 @@ func TestReloadFailure(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	fakeClock.Add(2 * time.Second)
 	for {
 		select {
 		case r := <-reloads:
