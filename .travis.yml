@@ -19,7 +19,7 @@ addons:
       - rsyslog
   mariadb: "10.0"
 
-sudo: false
+sudo: true
 
 services:
   - rabbitmq
