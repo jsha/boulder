@@ -1,0 +1,12 @@
+FROM mariadb:10.0
+
+MAINTAINER Jacob Hoffman-Andrews "jsha@eff.org"
+
+WORKDIR /go/src/github.com/letsencrypt/boulder
+# Copy in the Boulder sources
+COPY ./test/*.sh ./test/*.sql /go/src/github.com/letsencrypt/boulder/test/
+COPY ./sa/_db/ /go/src/github.com/letsencrypt/boulder/sa/_db/
+COPY test/goose /usr/bin/
+WORKDIR /go/src/github.com/letsencrypt/boulder
+
+RUN [ "./test/boulder-db.sh" ]
