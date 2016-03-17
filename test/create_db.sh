@@ -36,14 +36,8 @@ for svc in $SERVICES; do
 		# socket connections.
 		USERS_SQL=test/${svc}_db_users.sql
 		if [[ -f $USERS_SQL ]]; then
-			if [[ $MYSQL_CONTAINER ]]; then
-				sed -e "s/'localhost'/'172.%'/g" < $USERS_SQL | \
-					mysql $dbconn -D $db || \
-					die "unable to add users to ${db}"
-			else
-				mysql $dbconn -D $db < $USERS_SQL || \
-					die "unable to add users to ${db}"
-			fi
+			mysql $dbconn -D $db < $USERS_SQL || \
+				die "unable to add users to ${db}"
 			echo "added users to ${db}"
 		fi
 		) &
