@@ -19,7 +19,7 @@
 		{
 			"ImportPath": "github.com/cloudflare/cfssl/certdb",
 			"Comment": "1.1.0-419-gd7d8804",
-			"Rev": "d7d8804ccaacee42dc06209eb53b22588cedb822"
+			"Rev": "d7d8804ccaacee42dc06209eb53b22588cedb821"
 		},
 		{
 			"ImportPath": "github.com/cloudflare/cfssl/config",
