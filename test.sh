@@ -296,7 +296,7 @@ if [[ "$RUN" =~ "godep-restore" ]] ; then
   # Once we switch to Go 1.6's imports and don't need rewriting anymore, we can
   # do this for all builds.
   if [[ "${TRAVIS_REPO_SLUG}" == "letsencrypt/boulder" ]] ; then
-    run_and_comment godep save -r ./...
+    rm -r Godeps/_workspace
     git add Godeps/_workspace/
     run_and_comment git diff --exit-code Godeps/_workspace/
   fi
