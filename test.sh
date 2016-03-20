@@ -298,7 +298,7 @@ if [[ "$RUN" =~ "godep-restore" ]] ; then
   if [[ "${TRAVIS_REPO_SLUG}" == "letsencrypt/boulder" ]] ; then
     rm -r Godeps/_workspace
     git add Godeps/_workspace/
-    run_and_comment git diff --exit-code Godeps/_workspace/
+    run_and_comment git diff --exit-code HEAD Godeps/_workspace/
   fi
   end_context #godep-restore
 fi
