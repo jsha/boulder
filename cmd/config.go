@@ -311,7 +311,6 @@ type CAConfig struct {
 	DBConfig
 	HostnamePolicyConfig
 
-	Profile      string
 	RSAProfile   string
 	ECDSAProfile string
 	TestMode     bool
