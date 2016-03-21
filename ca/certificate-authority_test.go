@@ -605,7 +605,8 @@ func TestRejectValidityTooLong(t *testing.T) {
 	ca.SA = ctx.sa
 
 	// This time is a few minutes before the notAfter in testdata/ca_cert.pem
-	future, err := time.Parse(time.RFC822, "10 Feb 25 00:30 GMT")
+	future, err := time.Parse(time.RFC3339, "2025-02-10T00:30:00Z")
+
 	test.AssertNotError(t, err, "Failed to parse time")
 	ctx.fc.Set(future)
 	// Test that the CA rejects CSRs that would expire after the intermediate cert
