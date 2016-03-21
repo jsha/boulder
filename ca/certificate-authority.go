@@ -179,7 +179,7 @@ func makeInternalIssuers(
 			return nil, err
 		}
 		cn := iss.Cert.Subject.CommonName
-		if internalIssuers[cn] {
+		if internalIssuers[cn] != nil {
 			return nil, errors.New("Multiple issuer certs with the same CommonName are not supported")
 		}
 		internalIssuers[cn] = &internalIssuer{
