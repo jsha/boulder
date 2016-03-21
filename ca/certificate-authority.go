@@ -371,11 +371,10 @@ func (ca *CertificateAuthorityImpl) GenerateOCSP(xferObj core.OCSPSigningRequest
 		return nil, fmt.Errorf("This CA doesn't have an issuer cert with CommonName %q", cn)
 	}
 
-	fmt.Println("xx", issuer.cert.Subject.CommonName, cert.Issuer.CommonName)
 	err = cert.CheckSignatureFrom(issuer.cert)
 	if err != nil {
 		return nil, fmt.Errorf("GenerateOCSP was asked to sign OCSP for cert "+
-			"%s from %q, but the signature was not valid: %s.",
+			"%s from %q, but the cert's signature was not valid: %s.",
 			core.SerialToString(cert.SerialNumber), cn, err)
 	}
 
