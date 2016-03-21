@@ -159,8 +159,14 @@ func makeInternalIssuers(
 	policy *cfsslConfig.Signing,
 	lifespanOCSP time.Duration,
 ) (map[string]*internalIssuer, error) {
+	if len(issuers) == 0 {
+		return nil, errors.New("No issuers specified.")
+	}
 	internalIssuers := make(map[string]*internalIssuer)
 	for _, iss := range issuers {
+		if iss.Cert == nil || iss.Signer == nil {
+			return nil, errors.New("Issuer with nil cert or signer specified.")
+		}
 		eeSigner, err := local.NewSigner(iss.Signer, iss.Cert, x509.SHA256WithRSA, policy)
 		if err != nil {
 			return nil, err
@@ -172,7 +178,11 @@ func makeInternalIssuers(
 		if err != nil {
 			return nil, err
 		}
-		internalIssuers[iss.Cert.Subject.CommonName] = &internalIssuer{
+		cn := iss.Cert.Subject.CommonName
+		if internalIssuers[cn] {
+			return nil, errors.New("Multiple issuer certs with the same CommonName are not supported")
+		}
+		internalIssuers[cn] = &internalIssuer{
 			cert:       iss.Cert,
 			eeSigner:   eeSigner,
 			ocspSigner: ocspSigner,
@@ -216,14 +226,6 @@ func NewCertificateAuthorityImpl(
 		return nil, errors.New("Config must specify an OCSP lifespan period.")
 	}
 
-	if len(issuers) == 0 {
-		return nil, errors.New("No issuers specified.")
-	}
-	for _, issuer := range issuers {
-		if issuer.Cert == nil || issuer.Signer == nil {
-			return nil, errors.New("Issuer with nil cert or signer specified.")
-		}
-	}
 	internalIssuers, err := makeInternalIssuers(
 		issuers,
 		cfsslConfigObj.Signing,
