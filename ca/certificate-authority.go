@@ -212,8 +212,7 @@ func NewCertificateAuthorityImpl(
 		return nil, err
 	}
 
-	lifespanOCSP := config.LifespanOCSP.Duration
-	if lifespanOCSP == 0*time.Hour {
+	if config.LifespanOCSP.Duration == 0 {
 		return nil, errors.New("Config must specify an OCSP lifespan period.")
 	}
 
@@ -225,7 +224,10 @@ func NewCertificateAuthorityImpl(
 			return nil, errors.New("Issuer with nil cert or signer specified.")
 		}
 	}
-	internalIssuers, err := makeInternalIssuers(issuers, cfsslConfigObj.Signing, lifespanOCSP)
+	internalIssuers, err := makeInternalIssuers(
+		issuers,
+		cfsslConfigObj.Signing,
+		config.LifespanOCSP.Duration)
 	if err != nil {
 		return nil, err
 	}
