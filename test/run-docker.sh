@@ -67,7 +67,7 @@ docker run --rm -it \
 	-e MYSQL_CONTAINER=yes \
 	"${fake_dns_args[@]}" \
 	-p 4000:4000 \
-	--name boulder \
+		--name boulder \
 		--link=boulder-mysql:boulder-mysql \
 		--link=boulder-rabbitmq:boulder-rabbitmq \
 	letsencrypt/boulder
