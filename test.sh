@@ -147,7 +147,7 @@ function run_unit_tests() {
     # Run each test by itself for Travis, so we can get coverage
     for path in ${TESTPATHS}; do
       dir=$(basename $path)
-      run go test -race -cover -coverprofile=${dir}.coverprofile ${path}
+      go test -race -cover -coverprofile=${dir}.coverprofile ${path} || FAILURE=1
     done
 
     # Gather all the coverprofiles
