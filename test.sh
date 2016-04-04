@@ -142,7 +142,7 @@ function run_unit_tests() {
     all_shared_imports=$(go list -f '{{ join .Imports "\n" }}' $TESTPATHS | sort | uniq)
     deps=$(go list -f '{{ if not .Standard }}{{ .ImportPath }}{{ end }}' ${all_shared_imports})
     echo "go installing race detector enabled dependencies"
-    go install -v -race $deps
+    go install -race $deps
 
     # Run each test by itself for Travis, so we can get coverage
     for path in ${TESTPATHS}; do
