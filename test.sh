@@ -66,7 +66,6 @@ function run() {
 
   if [ ${status} -eq 0 ]; then
     update_status --state success
-    echo "Success: $@"
   else
     FAILURE=1
     update_status --state failure
@@ -83,7 +82,6 @@ function run_and_comment() {
 
   if [ "x${result}" == "x" ]; then
     update_status --state success
-    echo "Success: $@"
   else
     FAILURE=1
     update_status --state failure
