@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/bash -x
 # Run all tests and coverage checks. Called from Travis automatically, also
 # suitable to run manually. See list of prerequisite packages in .travis.yml
 if type realpath >/dev/null 2>&1 ; then
