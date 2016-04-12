@@ -69,4 +69,5 @@ cache:
   directories:
     - $HOME/gopath
 before_cache:
+  - rm -r $HOME/gopath/src/github.com/letsencrypt/boulder
   - find $HOME/gopath -name *.coverprofile -delete
