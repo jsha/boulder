@@ -65,3 +65,6 @@ env:
 script:
   - bash test.sh
 
+cache:
+  directories:
+    - $HOME/gopath
