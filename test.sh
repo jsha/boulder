@@ -285,6 +285,8 @@ fi
 # Godeps.json really exist in the remote repo and match what we have.
 if [[ "$RUN" =~ "godep-restore" ]] ; then
   start_context "godep-restore"
+  OLDGOPATH=${GOPATH}
+  GOPATH=$(mktemp -d -t godeprestoreXXXX)
   run_and_comment godep restore
   # Run godep save and do a diff, to ensure that the version we got from
   # `godep restore` matched what was in the remote repo. We only do this on
@@ -297,6 +299,7 @@ if [[ "$RUN" =~ "godep-restore" ]] ; then
     run_and_comment godep save -r ./...
     run_and_comment git diff --exit-code Godeps/_workspace/
   fi
+  GOPATH=${OLDGOPATH}
   end_context #godep-restore
 fi
 
