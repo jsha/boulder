@@ -69,5 +69,6 @@ cache:
   directories:
     - $HOME/gopath
 before_cache:
+  - cd $HOME
   - rm -rf $TRAVIS_BUILD_DIR
   - find $HOME/gopath -name *.coverprofile -delete
