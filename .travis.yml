@@ -68,3 +68,5 @@ script:
 cache:
   directories:
     - $HOME/gopath
+before_cache:
+  - find $HOME/gopath -name *.coverprofile -delete
