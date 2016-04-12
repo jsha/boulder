@@ -7,6 +7,7 @@
 set -ev
 
 go get \
+  bitbucket.org/liamstask/goose/cmd/goose \
   golang.org/x/tools/cover \
   github.com/golang/lint/golint \
   github.com/tools/godep \
@@ -14,12 +15,6 @@ go get \
   github.com/modocache/gover \
   github.com/jcjones/github-pr-status \
   github.com/jsha/listenbuddy &
-
-(wget https://github.com/jsha/boulder-tools/raw/master/goose.gz &&
- mkdir -p $GOPATH/bin &&
- zcat goose.gz > $GOPATH/bin/goose &&
- chmod +x $GOPATH/bin/goose &&
- ./test/create_db.sh) &
 
 # Set up rabbitmq exchange
 go run cmd/rabbitmq-setup/main.go -server amqp://boulder-rabbitmq &
