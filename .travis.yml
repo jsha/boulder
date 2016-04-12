@@ -10,6 +10,7 @@ addons:
     - boulder-rabbitmq
   apt:
     packages:
+      - nginx
       - lsb-release
       - python-dev
       - python-virtualenv
