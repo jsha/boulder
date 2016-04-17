@@ -19,7 +19,7 @@ HARDFAIL=${HARDFAIL:-fmt}
 
 FAILURE=0
 
-TESTPATHS=$(go list -f '{{ .ImportPath }}' ./... | grep -v /vendor/)
+TESTPATHS=$(go list -f '{{ .ImportPath }}' ./... | egrep -v '/(vendor|Godeps)/')
 
 # We need to know, for github-pr-status, what the triggering commit is.
 # Assume first it's the travis commit (for builds of master), unless we're
