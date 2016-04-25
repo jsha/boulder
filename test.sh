@@ -58,14 +58,18 @@ update_status() {
   fi
 }
 
+# Run a command, suppressing its output unless it fails. If it fails, make the
+# whole run fail.
 function run() {
   echo "$@"
-  "$@" 2>&1
+  result_file=$(mktemp -t bouldertestXXXX)
+  "$@" 2>&1 >${result_file}
   local status=$?
 
   if [ ${status} -eq 0 ]; then
     update_status --state success
   else
+    cat ${result_file}
     FAILURE=1
     update_status --state failure
     echo "[!] FAILURE: $@"
@@ -108,7 +112,7 @@ function build_letsencrypt() {
     https://www.github.com/letsencrypt/letsencrypt.git \
     $LETSENCRYPT_PATH
   cd $LETSENCRYPT_PATH
-  ./tools/venv.sh >/dev/null || exit 1
+  run ./tools/venv.sh
   cd -
 }
 
