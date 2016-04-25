@@ -106,9 +106,9 @@ function die() {
 function build_letsencrypt() {
   run git clone \
     https://www.github.com/letsencrypt/letsencrypt.git \
-    $LETSENCRYPT_PATH || exit 1
+    $LETSENCRYPT_PATH
   cd $LETSENCRYPT_PATH
-  run ./tools/venv.sh
+  ./tools/venv.sh >/dev/null || exit 1
   cd -
 }
 
