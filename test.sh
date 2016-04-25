@@ -237,24 +237,7 @@ if [[ "$RUN" =~ "integration" ]] ; then
 
   source ${LETSENCRYPT_PATH}/venv/bin/activate
 
-  python test/integration-test.py --all
-  case $? in
-    0) # Success
-      update_status --state success
-      ;;
-    1) # Python client failed
-      update_status --state success --description "Python integration failed."
-      FAILURE=1
-      ;;
-    2) # Node client failed
-      update_status --state failure --description "NodeJS integration failed."
-      FAILURE=1
-      ;;
-    *) # Error occurred
-      update_status --state error --description "Unknown error occurred."
-      FAILURE=1
-      ;;
-  esac
+  run python test/integration-test.py --all
   end_context #integration
 fi
 
