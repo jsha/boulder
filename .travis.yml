@@ -47,8 +47,14 @@ branches:
 # command, which runs `go get`. We specifically want to avoid that because we
 # want to ensure all our dependencies are vendored.
 install:
-  - travis_retry test/travis-before-install.sh
+  # Boulder consists of multiple Go packages, which
+  # refer to each other by their absolute GitHub path,
+  # That means, by default, if someone forks the repo,
+  # Travis won't pass on their own repo. To fix that,
+  # we add a symlink and cd there.
+  - ln -sf $TRAVIS_BUILD_DIR $GOPATH/src/github.com/letsencrypt/boulder
   - cd $GOPATH/src/github.com/letsencrypt/boulder
+  - travis_retry test/travis-before-install.sh
 
 env:
   global:
