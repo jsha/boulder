@@ -52,6 +52,7 @@ install:
   # That means, by default, if someone forks the repo,
   # Travis won't pass on their own repo. To fix that,
   # we add a symlink and cd there.
+  - mkdir -p $GOPATH/src/github.com/letsencrypt
   - ln -sf $TRAVIS_BUILD_DIR $GOPATH/src/github.com/letsencrypt/boulder
   - cd $GOPATH/src/github.com/letsencrypt/boulder
   - travis_retry test/travis-before-install.sh
