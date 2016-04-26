@@ -55,6 +55,7 @@ install:
   - ln -sf $TRAVIS_BUILD_DIR $GOPATH/src/github.com/letsencrypt/boulder
   - cd $GOPATH/src/github.com/letsencrypt/boulder
   - travis_retry test/travis-before-install.sh
+  - travis_retry test/setup.sh
 
 env:
   global:
