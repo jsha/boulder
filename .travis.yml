@@ -20,12 +20,8 @@ addons:
       - libffi-dev
       - ca-certificates
       - rsyslog
-  mariadb: "10.0"
 
 sudo: false
-
-services:
-  - rabbitmq
 
 matrix:
   fast_finish: true
@@ -49,6 +45,8 @@ branches:
 install:
   - travis_retry test/travis-before-install.sh
   - cd $GOPATH/src/github.com/letsencrypt/boulder
+  - docker run -d mariadb:10.1 -e MYSQL_ALLOW_EMPTY_PASSWORD=true -p 3306:3306
+  - docker run -d rabbitmq:3 -p 5672:5672
 
 env:
   global:
