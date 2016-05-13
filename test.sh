@@ -264,6 +264,7 @@ if [[ "$RUN" =~ "godep-restore" ]] ; then
   cp Godeps/Godeps.json Godeps/Godeps.json.head
   run_and_comment godep save ./...
   run_and_comment diff <(sed /GodepVersion/d Godeps/Godeps.json.head) <(sed /GodepVersion/d Godeps/Godeps.json)
+  run_and_comment git diff --exit-code -- ./vendor/
   end_context #godep-restore
 fi
 
