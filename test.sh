@@ -301,7 +301,7 @@ if [[ "$RUN" =~ "generate" ]] ; then
   go install ./probs
   go install google.golang.org/grpc/codes
   run_and_comment go generate ${TESTPATHS}
-  run_and_comment git diff --exit-code ${TESTPATHS}
+  run_and_comment git diff --exit-code $(ls | grep -v Godeps)
   end_context #"generate"
 fi
 
