@@ -41,7 +41,7 @@ for dbenv in $DBENVS; do
     sed -e "s/'localhost'/'%'/g" < ${USERS_SQL} | \
       mysql $dbconn -D $db || die "unable to add users to ${db}"
   elif mysqld -V | grep "10.0"; then
-    sed -e "s/'localhost'/'%'/g" < test/mariadb100_users.sql | \
+    sed -e "s/'localhost'/'127.%'/g" < test/mariadb100_users.sql | \
       mysql $dbconn -D $db || die "blah"
   else
     sed -e "s/'localhost'/'127.%'/g" < $USERS_SQL | \
