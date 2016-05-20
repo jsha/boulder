@@ -1,6 +1,5 @@
-#!/bin/bash -v
+#!/bin/bash
 set -o errexit
-set -o xtrace
 cd $(dirname $0)/..
 source test/db-common.sh
 
