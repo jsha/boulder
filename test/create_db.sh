@@ -43,7 +43,7 @@ for dbenv in $DBENVS; do
     sed -e "s/'localhost'/'127.%'/g" < test/mariadb100_users.sql | \
       mysql $dbconn -D $db || die "blah"
   else
-    sed -e "s/'localhost'/'127.%'/g" < $USERS_SQL | \
+    sed -e "s/'localhost'/'127.%'/g" < $USERS_SQL | tee /dev/stderr | \
       mysql $dbconn -D $db < $USERS_SQL || die "unable to add users to ${db}"
   fi
   echo "added users to ${db}"
