@@ -1,7 +1,7 @@
 {
 	"ImportPath": "github.com/letsencrypt/boulder",
 	"GoVersion": "go1.5",
-	"GodepVersion": "v66",
+	"GodepVersion": "v69",
 	"Packages": [
 		"./..."
 	],
@@ -95,7 +95,7 @@
 		},
 		{
 			"ImportPath": "github.com/golang/protobuf/proto",
-			"Rev": "8d92cf5fc15a4382f8964b08e1f42a75c0591aa3"
+			"Rev": "e51d002c610dbe8c136679a67a6ded5df4d49b5c"
 		},
 		{
 			"ImportPath": "github.com/google/certificate-transparency/go",
