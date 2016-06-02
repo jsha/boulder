@@ -62,7 +62,6 @@ const (
 	MethodCountCertificatesByNames          = "CountCertificatesByNames"          // SA
 	MethodCountRegistrationsByIP            = "CountRegistrationsByIP"            // SA
 	MethodCountPendingAuthorizations        = "CountPendingAuthorizations"        // SA
-	MethodGetSCTReceipt                     = "GetSCTReceipt"                     // SA
 	MethodAddSCTReceipt                     = "AddSCTReceipt"                     // SA
 	MethodSubmitToCT                        = "SubmitToCT"                        // Pub
 	MethodRevokeAuthorizationsByDomain      = "RevokeAuthorizationsByDomain"      // SA
@@ -1043,30 +1042,6 @@ func NewStorageAuthorityServer(rpc Server, impl core.StorageAuthority) error {
 		return json.Marshal(count)
 	})
 
-	rpc.Handle(MethodGetSCTReceipt, func(ctx context.Context, req []byte) (response []byte, err error) {
-		var gsctReq struct {
-			Serial string
-			LogID  string
-		}
-
-		err = json.Unmarshal(req, &gsctReq)
-		if err != nil {
-			// AUDIT[ Improper Messages ] 0786b6f2-91ca-4f48-9883-842a19084c64
-			improperMessage(MethodGetSCTReceipt, err, req)
-			return
-		}
-
-		sct, err := impl.GetSCTReceipt(ctx, gsctReq.Serial, gsctReq.LogID)
-		jsonResponse, err := json.Marshal(sct)
-		if err != nil {
-			// AUDIT[ Error Conditions ] 9cc4d537-8534-4970-8665-4b382abe82f3
-			errorCondition(MethodGetSCTReceipt, err, req)
-			return
-		}
-
-		return jsonResponse, nil
-	})
-
 	rpc.Handle(MethodAddSCTReceipt, func(ctx context.Context, req []byte) (response []byte, err error) {
 		var sct core.SignedCertificateTimestamp
 		err = json.Unmarshal(req, &sct)
@@ -1425,30 +1400,6 @@ func (cac StorageAuthorityClient) CountPendingAuthorizations(ctx context.Context
 		return
 	}
 	err = json.Unmarshal(response, &count)
-	return
-}
-
-// GetSCTReceipt retrieves an SCT according to the serial number of a certificate
-// and the logID of the log to which it was submitted.
-func (cac StorageAuthorityClient) GetSCTReceipt(ctx context.Context, serial string, logID string) (receipt core.SignedCertificateTimestamp, err error) {
-	var gsctReq struct {
-		Serial string
-		LogID  string
-	}
-	gsctReq.Serial = serial
-	gsctReq.LogID = logID
-
-	data, err := json.Marshal(gsctReq)
-	if err != nil {
-		return
-	}
-
-	response, err := cac.rpc.DispatchSync(MethodGetSCTReceipt, data)
-	if err != nil {
-		return
-	}
-
-	err = json.Unmarshal(response, receipt)
 	return
 }
 

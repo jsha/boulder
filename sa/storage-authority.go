@@ -823,26 +823,6 @@ func (e ErrNoReceipt) Error() string {
 	return string(e)
 }
 
-// GetSCTReceipt gets a specific SCT receipt for a given certificate serial and
-// CT log ID
-func (ssa *SQLStorageAuthority) GetSCTReceipt(ctx context.Context, serial string, logID string) (receipt core.SignedCertificateTimestamp, err error) {
-	err = ssa.dbMap.SelectOne(
-		&receipt,
-		"SELECT * FROM sctReceipts WHERE certificateSerial = :serial AND logID = :logID",
-		map[string]interface{}{
-			"serial": serial,
-			"logID":  logID,
-		},
-	)
-
-	if err == sql.ErrNoRows {
-		err = ErrNoReceipt(err.Error())
-		return
-	}
-
-	return
-}
-
 // AddSCTReceipt adds a new SCT receipt to the (append-only) sctReceipts table
 func (ssa *SQLStorageAuthority) AddSCTReceipt(ctx context.Context, sct core.SignedCertificateTimestamp) error {
 	err := ssa.dbMap.Insert(&sct)

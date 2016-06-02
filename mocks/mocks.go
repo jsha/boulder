@@ -242,11 +242,6 @@ func (sa *StorageAuthority) UpdateRegistration(_ context.Context, reg core.Regis
 	return
 }
 
-// GetSCTReceipt  is a mock
-func (sa *StorageAuthority) GetSCTReceipt(_ context.Context, serial string, logID string) (sct core.SignedCertificateTimestamp, err error) {
-	return
-}
-
 // AddSCTReceipt is a mock
 func (sa *StorageAuthority) AddSCTReceipt(_ context.Context, sct core.SignedCertificateTimestamp) (err error) {
 	if sct.Signature == nil {

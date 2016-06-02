@@ -496,30 +496,6 @@ func TestAddSCTReceipt(t *testing.T) {
 	test.AssertNotError(t, err, "Incorrectly returned error on duplicate SCT receipt")
 }
 
-func TestGetSCTReceipt(t *testing.T) {
-	sigBytes, err := base64.StdEncoding.DecodeString(sctSignature)
-	test.AssertNotError(t, err, "Failed to decode SCT signature")
-	sct := core.SignedCertificateTimestamp{
-		SCTVersion:        sctVersion,
-		LogID:             sctLogID,
-		Timestamp:         sctTimestamp,
-		Signature:         sigBytes,
-		CertificateSerial: sctCertSerial,
-	}
-	sa, _, cleanup := initSA(t)
-	defer cleanup()
-	err = sa.AddSCTReceipt(ctx, sct)
-	test.AssertNotError(t, err, "Failed to add SCT receipt")
-
-	sqlSCT, err := sa.GetSCTReceipt(ctx, sctCertSerial, sctLogID)
-	test.AssertNotError(t, err, "Failed to get existing SCT receipt")
-	test.Assert(t, sqlSCT.SCTVersion == sct.SCTVersion, "Invalid SCT version")
-	test.Assert(t, sqlSCT.LogID == sct.LogID, "Invalid log ID")
-	test.Assert(t, sqlSCT.Timestamp == sct.Timestamp, "Invalid timestamp")
-	test.Assert(t, bytes.Compare(sqlSCT.Signature, sct.Signature) == 0, "Invalid signature")
-	test.Assert(t, sqlSCT.CertificateSerial == sct.CertificateSerial, "Invalid certificate serial")
-}
-
 func TestMarkCertificateRevoked(t *testing.T) {
 	sa, fc, cleanUp := initSA(t)
 	defer cleanUp()
