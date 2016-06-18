@@ -375,8 +375,7 @@ func (dnsResolver *DNSResolverImpl) LookupHost(ctx context.Context, hostname str
 }
 
 // LookupCAA sends a DNS query to find all CAA records associated with
-// the provided hostname. If the response code from the resolver is
-// SERVFAIL an empty slice of CAA records is returned.
+// the provided hostname.
 func (dnsResolver *DNSResolverImpl) LookupCAA(ctx context.Context, hostname string) ([]*dns.CAA, error) {
 	dnsType := dns.TypeCAA
 	r, err := dnsResolver.exchangeOne(ctx, hostname, dnsType, dnsResolver.caaStats)
@@ -384,10 +383,14 @@ func (dnsResolver *DNSResolverImpl) LookupCAA(ctx context.Context, hostname stri
 		return nil, &DNSError{dnsType, hostname, err, -1}
 	}
 
-	// On resolver validation failure, or other server failures, return empty an
-	// set and no error.
+	// If the resolver returns SERVFAIL for a certain list of FQDNs, return an
+	// empty set and no error. We originally granted a pass on SERVFAIL because
+	// Cloudflare's DNS, which is behind a lot of hostnames, returned that code.
+	// That is since fixed, but we have a handful of other domains that still return
+	// SERVFAIL, but will need certificate renewals. After a suitable notice
+	// period we will remove these exceptions.
 	var CAAs []*dns.CAA
-	if r.Rcode == dns.RcodeServerFailure {
+	if r.Rcode == dns.RcodeServerFailure && caaServfailException[hostname] {{
 		return CAAs, nil
 	}
 
