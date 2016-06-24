@@ -141,6 +141,7 @@ type DNSResolver interface {
 	LookupHost(context.Context, string) ([]net.IP, error)
 	LookupCAA(context.Context, string) ([]*dns.CAA, error)
 	LookupMX(context.Context, string) ([]string, error)
+	EnforceCAASERVFAIL()
 }
 
 // DNSResolverImpl represents a client that talks to an external resolver
