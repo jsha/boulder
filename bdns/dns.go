@@ -148,15 +148,17 @@ type DNSResolverImpl struct {
 	dnsClient                exchanger
 	servers                  []string
 	allowRestrictedAddresses bool
-	maxTries                 int
-	LookupIPv6               bool
-	clk                      clock.Clock
-	stats                    metrics.Scope
-	txtStats                 metrics.Scope
-	aStats                   metrics.Scope
-	aaaaStats                metrics.Scope
-	caaStats                 metrics.Scope
-	mxStats                  metrics.Scope
+	// Temporary feature flag. TODO(jsha): Remove once it's turned on.
+	enforceCAASERVFAIL bool
+	maxTries           int
+	LookupIPv6         bool
+	clk                clock.Clock
+	stats              metrics.Scope
+	txtStats           metrics.Scope
+	aStats             metrics.Scope
+	aaaaStats          metrics.Scope
+	caaStats           metrics.Scope
+	mxStats            metrics.Scope
 }
 
 var _ DNSResolver = &DNSResolverImpl{}
@@ -188,6 +190,10 @@ func NewDNSResolverImpl(readTimeout time.Duration, servers []string, stats metri
 		caaStats:                 stats.NewScope("CAA"),
 		mxStats:                  stats.NewScope("MX"),
 	}
+}
+
+func (dr *DNSResolverImpl) EnforceCAASERVFAIL() {
+	dr.enforceCAASERVFAIL = true
 }
 
 // NewTestDNSResolverImpl constructs a new DNS resolver object that utilizes the
@@ -390,8 +396,12 @@ func (dnsResolver *DNSResolverImpl) LookupCAA(ctx context.Context, hostname stri
 	// SERVFAIL, but will need certificate renewals. After a suitable notice
 	// period we will remove these exceptions.
 	var CAAs []*dns.CAA
-	if r.Rcode == dns.RcodeServerFailure && caaServfailException[hostname] {{
-		return CAAs, nil
+	if r.Rcode == dns.RcodeServerFailure {
+		if !dnsResolver.enforceCAASERVFAIL || caaServfailException[hostname] {
+			return CAAs, nil
+		} else {
+			return nil, &DNSError{dnsType, hostname, nil, r.Rcode}
+		}
 	}
 
 	for _, answer := range r.Answer {
