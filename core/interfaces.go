@@ -6,10 +6,10 @@ import (
 	"net/http"
 	"time"
 
-	jose "github.com/square/go-jose"
 	"golang.org/x/net/context"
 
 	"github.com/letsencrypt/boulder/revocation"
+	jose "github.com/square/go-jose"
 )
 
 // A WebFrontEnd object supplies methods that can be hooked into
