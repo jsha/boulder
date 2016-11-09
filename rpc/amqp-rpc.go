@@ -284,7 +284,9 @@ func makeAmqpChannel(conf *cmd.AMQPConfig) (*amqp.Channel, error) {
 
 	if conf.Insecure == true {
 		// If the Insecure flag is true, then just go ahead and connect
+		log.Info("Dialing")
 		conn, err = amqp.Dial(serverURL)
+		log.Info(fmt.Sprintf("Dialing done %s", err))
 		if err != nil {
 			return nil, err
 		}
