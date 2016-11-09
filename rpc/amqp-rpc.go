@@ -285,6 +285,9 @@ func makeAmqpChannel(conf *cmd.AMQPConfig) (*amqp.Channel, error) {
 	if conf.Insecure == true {
 		// If the Insecure flag is true, then just go ahead and connect
 		conn, err = amqp.Dial(serverURL)
+		if err != nil {
+			return nil, err
+		}
 	} else {
 		// The insecure flag is false or not set, so we need to load up the options
 		log.Info("AMQPS: Loading TLS Options.")
@@ -333,11 +336,12 @@ func makeAmqpChannel(conf *cmd.AMQPConfig) (*amqp.Channel, error) {
 			log.Info("AMQPS: Configured CA certificate for AMQPS.")
 		}
 
+		log.Info("Dialing")
 		conn, err = amqp.DialTLS(serverURL, cfg)
-	}
-
-	if err != nil {
-		return nil, err
+		log.Info(fmt.Sprintf("Done: %s", err))
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	return conn.Channel()
