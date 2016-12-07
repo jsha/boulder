@@ -79,9 +79,6 @@ func (ci *clientInterceptor) intercept(
 	methodScope := ci.stats.NewScope(cleanMethod(method, false))
 	methodScope.Inc("Calls", 1)
 	methodScope.GaugeDelta("InProgress", 1)
-	// Disable fail-fast so RPCs will retry until deadline, even if all backends
-	// are down.
-	opts = append(opts, grpc.FailFast(false))
 	err := grpc_prometheus.UnaryClientInterceptor(localCtx, method, req, reply, cc, invoker, opts...)
 	methodScope.TimingDuration("Latency", ci.clk.Since(s))
 	methodScope.GaugeDelta("InProgress", -1)
