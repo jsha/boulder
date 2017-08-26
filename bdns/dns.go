@@ -6,6 +6,7 @@ import (
 	"log"
 	"math/rand"
 	"net"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -20,6 +21,7 @@ import (
 
 func init() {
 	log.SetFlags(log.LstdFlags | log.Lmicroseconds | log.LUTC)
+	log.SetPrefix(fmt.Sprintf("%d__ ", os.Getpid()))
 }
 
 func parseCidr(network string, comment string) net.IPNet {
@@ -448,7 +450,7 @@ func (dnsClient *DNSClientImpl) LookupCAA(ctx context.Context, hostname string) 
 	if err != nil {
 		return nil, &DNSError{dnsType, hostname, err, -1}
 	}
-	fmt.Printf("Response ID %d\n", r.Id)
+	log.Printf("Response ID %d\n", r.Id)
 
 	// If the resolver returns SERVFAIL for a certain list of FQDNs, return an
 	// empty set and no error. We originally granted a pass on SERVFAIL because
