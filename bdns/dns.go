@@ -18,6 +18,10 @@ import (
 	"github.com/letsencrypt/boulder/metrics"
 )
 
+func init() {
+	log.SetFlags(log.LstdFlags | log.Lmicroseconds | log.LUTC)
+}
+
 func parseCidr(network string, comment string) net.IPNet {
 	_, net, err := net.ParseCIDR(network)
 	if err != nil {
