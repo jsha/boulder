@@ -427,19 +427,6 @@ def main():
 
 def run_chisel():
     # TODO(https://github.com/letsencrypt/boulder/issues/2521): Add TLS-SNI test.
-
-    test_expired_authz_purger()
-    test_ct_submission()
-    test_gsb_lookups()
-    test_multidomain()
-    test_expiration_mailer()
-    test_caa()
-    test_admin_revoker_cert()
-    test_admin_revoker_authz()
-    test_certificates_per_name()
-    test_ocsp()
-    test_single_ocsp()
-    test_dns_challenge()
     test_renewal_exemption()
 
 if __name__ == "__main__":
