@@ -38,7 +38,7 @@ env:
     - PATH=$HOME/bin:$PATH # protoc gets installed here
     - GO15VENDOREXPERIMENT=1
   matrix:
-    - RUN="integration" BOULDER_CONFIG_DIR="test/config-next"
+    - RUN="integration" BOULDER_CONFIG_DIR="test/config"
 
 install:
   - ./test/travis-before-install.sh
