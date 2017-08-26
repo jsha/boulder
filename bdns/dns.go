@@ -3,6 +3,7 @@ package bdns
 import (
 	"fmt"
 	"io/ioutil"
+	"log"
 	"math/rand"
 	"net"
 	"strings"
@@ -282,7 +283,11 @@ func (dnsClient *DNSClientImpl) exchangeOne(ctx context.Context, hostname string
 		ch := make(chan dnsResp, 1)
 
 		go func() {
+			log.Printf("Querying %s %s\n", dns.TypeToString[qtype], hostname)
 			rsp, rtt, err := client.Exchange(m, chosenServer)
+			if err != nil {
+				log.Printf("Error looking up %s %s: %s\n", dns.TypeToString[qtype], hostname, err)
+			}
 			result, authenticated := "failed", ""
 			if rsp != nil {
 				result = dns.RcodeToString[rsp.Rcode]
@@ -298,6 +303,7 @@ func (dnsClient *DNSClientImpl) exchangeOne(ctx context.Context, hostname string
 		select {
 		case <-ctx.Done():
 			dnsClient.cancelCounter.With(prometheus.Labels{"qtype": qtypeStr}).Inc()
+			log.Printf("Error looking up %s %s: %s\n", dns.TypeToString[qtype], hostname, ctx.Err())
 			err = ctx.Err()
 			return
 		case r := <-ch:

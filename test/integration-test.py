@@ -437,6 +437,7 @@ if __name__ == "__main__":
 
 @atexit.register
 def stop():
+    print(urllib2.urlopen("http://localhost:8004/metrics").read())
     import shutil
     shutil.rmtree(tempdir)
     if exit_status == 0:
