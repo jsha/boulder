@@ -68,7 +68,7 @@ func (ts *testSrv) dnsHandler(w dns.ResponseWriter, r *dns.Msg) {
 		fakeDNS = "127.0.0.1"
 	}
 	for _, q := range r.Question {
-		fmt.Printf("dns-srv: Query -- [%s] %s\n", q.Name, dns.TypeToString[q.Qtype])
+		fmt.Printf("dns-srv: Query -- %d [%s] %s\n", r.Id, q.Name, dns.TypeToString[q.Qtype])
 		switch q.Qtype {
 		case dns.TypeA:
 			record := new(dns.A)
@@ -141,6 +141,7 @@ func (ts *testSrv) dnsHandler(w dns.ResponseWriter, r *dns.Msg) {
 	m.Ns = append(m.Ns, auth)
 
 	w.WriteMsg(m)
+	fmt.Printf("Wrote reply with id %d\n", m.Id)
 	return
 }
 

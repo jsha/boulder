@@ -438,6 +438,7 @@ func (dnsClient *DNSClientImpl) LookupCAA(ctx context.Context, hostname string) 
 	if err != nil {
 		return nil, &DNSError{dnsType, hostname, err, -1}
 	}
+	fmt.Printf("Response ID %d\n", r.Id)
 
 	// If the resolver returns SERVFAIL for a certain list of FQDNs, return an
 	// empty set and no error. We originally granted a pass on SERVFAIL because
