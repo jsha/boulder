@@ -12,4 +12,4 @@ WORKDIR /go/src/github.com/letsencrypt/boulder
 
 RUN mkdir -p bin
 
-ENTRYPOINT [ "./test/entrypoint.sh" ]
+#ENTRYPOINT [ "./test/entrypoint.sh" ]
