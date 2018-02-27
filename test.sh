@@ -11,7 +11,11 @@ fi
 # defaults, because we don't want to run it locally (would be too disruptive to
 # GOPATH). We also omit coverage by default on local runs because it generates
 # artifacts on disk that aren't needed.
-RUN=${RUN:-vet fmt migrations unit integration errcheck dashlint}
+if [[ ${BOULDER_CONFIG_PATH} == "test/config-next" ]]; then
+  RUN=${RUN:-vet fmt migrations unit integration acme-v2 errcheck dashlint}
+else
+  RUN=${RUN:-vet fmt migrations unit integration errcheck dashlint}
+fi
 
 # The list of segments to hard fail on, as opposed to continuing to the end of
 # the unit tests before failing.
@@ -190,14 +194,7 @@ if [[ "$RUN" =~ "integration" ]] ; then
 fi
 
 if [[ "$RUN" =~ "acme-v2" ]] ; then
-  # If you're developing against a local Certbot repo, edit docker-compose.yml
-  # to mount it as a volume under /certbot, and run tests with
-  # docker-compose run -e RUN=acme-v2 -e CERTBOT_REPO=/certbot boulder ./test.sh
-  CERTBOT_REPO=${CERTBOT_REPO:-https://github.com/certbot/certbot}
-  CERTBOT_DIR=$(mktemp -d -t certbotXXXX)
-  git clone $CERTBOT_REPO $CERTBOT_DIR
-  (cd $CERTBOT_DIR ; ./tools/venv.sh)
-  source $CERTBOT_DIR/venv/bin/activate
+  source ${CERTBOT_PATH:-/certbot}/${VENV_NAME:-venv}/bin/activate
   DIRECTORY=https://boulder:4431/directory \
     run python2 test/integration-test-v2.py
 fi
