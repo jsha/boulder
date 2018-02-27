@@ -196,7 +196,7 @@ if [[ "$RUN" =~ "acme-v2" ]] ; then
   CERTBOT_REPO=${CERTBOT_REPO:-https://github.com/certbot/certbot}
   CERTBOT_DIR=$(mktemp -d -t certbotXXXX)
   git clone $CERTBOT_REPO $CERTBOT_DIR
-  (cd $CERTBOT_DIR ; git checkout acme-v2-integration; ./tools/venv.sh)
+  (cd $CERTBOT_DIR ; ./tools/venv.sh)
   source $CERTBOT_DIR/venv/bin/activate
   DIRECTORY=https://boulder:4431/directory \
     run python2 test/integration-test-v2.py
