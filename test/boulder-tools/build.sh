@@ -1,5 +1,4 @@
 #!/bin/bash -ex
-
 # Boulder deps
 apt-get update
 
@@ -13,15 +12,17 @@ apt-get install -y --no-install-recommends \
   protobuf-compiler \
   softhsm \
   build-essential \
+  make \
   cmake \
   libssl-dev \
   libseccomp-dev \
   opensc &
 
-# Install port forwarder, database migration tool, and testing tools.
+# Install database migration tool and testing tools.
 export GOBIN=/usr/local/bin GOPATH=/tmp/gopath
 go get \
   bitbucket.org/liamstask/goose/cmd/goose \
+  github.com/globalsign/certlint \
   github.com/golang/lint/golint \
   github.com/golang/mock/mockgen \
   github.com/golang/protobuf/proto \

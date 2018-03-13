@@ -39,7 +39,7 @@ $(OBJDIR):
 $(CMD_BINS): build_cmds
 
 build_cmds: | $(OBJDIR)
-	GOBIN=$(OBJDIR) go install $(GO_BUILD_FLAGS) ./...
+	GOBIN=$(OBJDIR) $(GO) install $(GO_BUILD_FLAGS) ./...
 
 clean:
 	rm -f $(OBJDIR)/*

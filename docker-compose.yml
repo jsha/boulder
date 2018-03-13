@@ -2,8 +2,9 @@ version: '2'
 services:
     boulder:
         # To minimize fetching this should be the same version used below
-        image: letsencrypt/boulder-tools:2018-03-07
+        image: j4cob/boulder-tools:2018-03-12
         environment:
+            GOPATH: /go/
             FAKE_DNS: 127.0.0.1
             PKCS11_PROXY_SOCKET: tcp://boulder-hsm:5657
             BOULDER_CONFIG_DIR: test/config
