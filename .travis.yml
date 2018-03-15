@@ -32,14 +32,13 @@ branches:
 
 matrix:
   include:
-    - env: RUN="vet fmt migrations integration godep-restore errcheck generate dashlint rpm"
+    - env: RUN="vet fmt migrations integration acme-v2 godep-restore errcheck generate dashlint rpm"
     # Config changes that have landed in master but not yet been applied to
     # production can be made in boulder-config-next.json.
-    - env: RUN="integration" BOULDER_CONFIG_DIR="test/config-next"
+    - env: RUN="integration acme-v2" BOULDER_CONFIG_DIR="test/config-next"
     - env: RUN="unit"
     - env: RUN="unit-next" BOULDER_CONFIG_DIR="test/config-next"
     - env: RUN="coverage"
-    - env: RUN="acme-v2" BOULDER_CONFIG_DIR="test/config-next"
   fast_finish: true
   allow_failures:
     - env: RUN="coverage"
