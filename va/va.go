@@ -679,6 +679,7 @@ func detailedError(err error) *probs.ProblemDetails {
 		return probs.ConnectionFailure(err.Error())
 	}
 
+	fmt.Printf("EEEEEE %#v\n", err)
 	return probs.ConnectionFailure("Error getting validation data")
 }
 
