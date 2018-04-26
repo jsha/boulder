@@ -42,6 +42,7 @@ func resetTestDatabase(t testing.TB, dbType string) func() {
 	if err := deleteEverythingInAllTables(db); err != nil {
 		t.Fatalf("Failed to delete everything: %s", err)
 	}
+	return nil
 	return func() {
 		if err := deleteEverythingInAllTables(db); err != nil {
 			t.Fatalf("Failed to truncate tables after the test: %s", err)
@@ -104,7 +105,7 @@ func deleteEverythingInAllTables(db CleanUpDB) error {
 // migrations) or the ones describing the internal configuration of
 // the server. To be used only in test code.
 func allTableNamesInDB(db CleanUpDB) ([]string, error) {
-	r, err := db.Query("select table_name from information_schema.tables t where t.table_schema = DATABASE() and t.table_name != 'goose_db_version';")
+	r, err := db.Query("select 1+1;")
 	if err != nil {
 		return nil, err
 	}

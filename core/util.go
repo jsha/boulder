@@ -265,6 +265,8 @@ func LoadCert(filename string) (cert *x509.Certificate, err error) {
 // retryJitter is used to prevent bunched retried queries from falling into lockstep
 const retryJitter = 0.2
 
+var callcount int
+
 // RetryBackoff calculates a backoff time based on number of retries, will always
 // add jitter so requests that start in unison won't fall into lockstep. Because of
 // this the returned duration can always be larger than the maximum by a factor of
@@ -281,9 +283,12 @@ func RetryBackoff(retries int, base, max time.Duration, factor float64) time.Dur
 	if backoff > fMax {
 		backoff = fMax
 	}
+	rnd := mrand.Float64()
+	fmt.Println("RetryBackoff", callcount, rnd)
+	callcount++
 	// Randomize backoff delays so that if a cluster of requests start at
 	// the same time, they won't operate in lockstep.
-	backoff *= (1 - retryJitter) + 2*retryJitter*mrand.Float64()
+	backoff *= (1 - retryJitter) + 2*retryJitter*rnd
 	return time.Duration(backoff)
 }
 

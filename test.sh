@@ -87,7 +87,7 @@ function run_unit_tests() {
     # spuriously because one test is modifying a table (especially
     # registrations) while another test is reading it.
     # https://github.com/letsencrypt/boulder/issues/1499
-    run go test -p 1 $GOTESTFLAGS ${TESTPATHS}
+    run go test -p 1 ./cmd/ocsp-updater -v -run 'TestLoopTickBackoff'
   fi
 }
 
