@@ -551,8 +551,8 @@ def main():
     if args.run_all or args.run_certbot:
         run_client_tests()
 
-    if args.run_all or args.run_loadtest:
-        run_loadtest()
+    #if args.run_all or args.run_loadtest:
+        #run_loadtest()
 
     if args.custom:
         run(args.custom)
