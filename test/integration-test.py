@@ -706,9 +706,11 @@ def main():
     if args.custom:
         run(args.custom)
 
+    print("travis_fold:start:other_integration")
     run_cert_checker()
     check_balance()
     run_expired_authz_purger()
+    print("travis_fold:end:other_integration")
 
     if not startservers.check():
         raise Exception("startservers.check failed")
