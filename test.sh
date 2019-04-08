@@ -185,7 +185,7 @@ fi
 # go.mod really exist in the remote repo and match what we have in vendor.
 if [[ "$RUN" =~ "gomod-vendor" ]] ; then
   start_context "gomod-vendor"
-  run_and_expect_silence go mod verify
+  run go mod verify
   end_context
 fi
 
