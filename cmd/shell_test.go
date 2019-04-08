@@ -35,6 +35,7 @@ var (
 )
 
 func TestPAConfigUnmarshal(t *testing.T) {
+	t.Fatal("eoops")
 	var pc1 PAConfig
 	err := json.Unmarshal(validPAConfig, &pc1)
 	test.AssertNotError(t, err, "Failed to unmarshal PAConfig")
