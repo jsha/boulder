@@ -181,15 +181,11 @@ if [[ "$RUN" =~ "integration" ]] ; then
   end_context #integration
 fi
 
-# Run gomod-cendor (happens only in Travis) to check that the version in
+# Run gomod-vendor (happens only in Travis) to check that the versions in
 # go.mod really exist in the remote repo and match what we have in vendor.
 if [[ "$RUN" =~ "gomod-vendor" ]] ; then
   start_context "gomod-vendor"
-  # Remove the existing vendor directory to check that the result of
-  # `go mod vendor` is the same.
-  run_and_expect_silence rm -rf vendor/
-  run_and_expect_silence go mod vendor
-  run_and_expect_silence git diff --exit-code -- ./vendor/
+  run_and_expect_silence go mod verify
   end_context
 fi
 
