@@ -253,13 +253,11 @@ tag).
 
 # Dependencies
 
-We vendorize all our dependencies using `godep`. Vendorizing means we copy the contents of those dependencies into our own repo. This has a few advantages:
+We vendorize all our dependencies using [Go modules](https://github.com/golang/go/wiki/Modules). Vendorizing means we copy the contents of those dependencies into our own repo. This has a few advantages:
   - If the remote sites that host our various dependencies are unreachable, it is still possible to build Boulder solely from the contents of its repo.
   - The versions of our dependencies can't change out from underneath us.
 
-Note that this makes it possible to edit the local copy of our dependencies rather than the upstream copy. Occasionally we do this in great emergencies, but in general this is a bad idea because it means the next person to update that dependency will overwrite the changes.
-
-Instead, it's better to contribute a patch upstream, then pull down changes. For dependencies that we expect to update semi-regularly, we create a fork in the letsencrypt organization, and vendorize that fork. For such forked dependencies, make changes by submitting a pull request to the letsencrypt fork. Once the pull request is reviewed and merged, (a) submit the changes as an upstream pull request, and (b) run `godep` to update to the latest version in the main Boulder. There are two advantages to this approach:
+When we need a change in our dependencies, we submit a patch upstream, then pull down changes. For dependencies that we expect to update semi-regularly, we create a fork in the letsencrypt organization, and vendorize that fork. For such forked dependencies, make changes by submitting a pull request to the letsencrypt fork. Once the pull request is reviewed and merged, (a) submit the changes as an upstream pull request, and (b) run `go get foo@v1.2.3` to update to the latest version in the main Boulder. There are two advantages to this approach:
   - If upstream is slow to merge for any reason, we don't have to wait.
   - When we make changes, our first review is from other Boulder contributors rather than upstream. That way we make sure code meets our needs first before asking someone else to spend time on it.
 
@@ -269,26 +267,14 @@ When vendorizing dependencies, it's important to make sure tests pass on the ver
 
 All Go dependencies are vendored under the vendor directory, to [make dependency management easier](https://golang.org/cmd/go/#hdr-Vendor_Directories).
 
-To update a dependencies:
+To update a dependencies, make sure you are using Go modules with vendoring
+enabled:
 
 ```
-# Fetch godep
-go get -u github.com/tools/godep
-# Check out the currently vendorized version of each dependency.
-godep restore
-# Update to the latest version of a dependency. Alternately you can cd to the
-# directory under GOPATH and check out a specific revision. Here's an example
-# using cfssl:
-go get -u github.com/cloudflare/cfssl/...
-# Update the Godep config to the appropriate version.
-godep update github.com/cloudflare/cfssl/...
-# Save the dependencies
-godep save ./...
-git add Godeps vendor
-git commit
+export GO111MODULE=on GOFLAGS=-mod=vendor
 ```
 
-NOTE: If you get "godep: no packages can be updated," there's a good chance you're trying to update a single package that belongs to a repo with other packages. For instance, `godep update golang.org/x/crypto/ocsp` will produce this error, because it's part of the `golang.org/x/crypto` repo, from which we also vendor other packages. Godep requires that all packages from the same repo be on the same version, so it can't update just one. See https://github.com/tools/godep/issues/164 for the issue dedicated to fixing it.
+Then run `go get foo@v1.2.3`.
 
 Certain dependencies we rely on themselves also vendor packages that we vendor. This generally isn't an issue unless the version that is vendored by our dependency uses a version with breaking changes from the version that we vendor. In this case either we need to switch to the same version or attempt to get the dependency to do the same.
 

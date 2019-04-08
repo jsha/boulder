@@ -5,17 +5,15 @@ if type realpath >/dev/null 2>&1 ; then
   cd $(realpath $(dirname $0))
 fi
 
+export GO111MODULE=on GOFLAGS=-mod=vendor
+
 # The list of segments to run. To run only some of these segments, pre-set the
 # RUN variable with the ones you want (see .travis.yml for an example).
-# Order doesn't matter. Note: godep-restore is specifically left out of the
-# defaults, because we don't want to run it locally (would be too disruptive to
-# GOPATH). We also omit coverage by default on local runs because it generates
+# Order doesn't matter. Note: gomod-vendor is specifically left out of the
+# defaults, because it's too expensive to run locally)
+# We also omit coverage by default on local runs because it generates
 # artifacts on disk that aren't needed.
 RUN=${RUN:-vet fmt migrations unit integration errcheck ineffassign dashlint}
-
-# The list of segments to hard fail on, as opposed to continuing to the end of
-# the unit tests before failing.
-HARDFAIL=${HARDFAIL:-fmt godep-restore}
 
 FAILURE=0
 
@@ -26,7 +24,7 @@ start_context() {
 
 end_context() {
   printf "[%16s] Done\n" ${CONTEXT}
-  if [ ${FAILURE} != 0 ] && [[ ${HARDFAIL} =~ ${CONTEXT} ]]; then
+  if [ ${FAILURE} != 0 ]; then
     echo "--------------------------------------------------"
     echo "---        A unit test or tool failed.         ---"
     echo "---   Stopping before running further tests.   ---"
@@ -183,29 +181,20 @@ if [[ "$RUN" =~ "integration" ]] ; then
   end_context #integration
 fi
 
-# Run godep-restore (happens only in Travis) to check that the hashes in
-# Godeps.json really exist in the remote repo and match what we have.
-if [[ "$RUN" =~ "godep-restore" ]] ; then
-  start_context "godep-restore"
-  run_and_expect_silence godep restore
-  # Run godep save and do a diff, to ensure that the version we got from
-  # `godep restore` matched what was in the remote repo.
-  cp Godeps/Godeps.json /tmp/Godeps.json.head
-  run_and_expect_silence rm -rf Godeps/ vendor/
-  run_and_expect_silence godep save ./...
-  run_and_expect_silence diff \
-    <(sed '/GodepVersion/d;/Comment/d;/GoVersion/d;' /tmp/Godeps.json.head) \
-    <(sed '/GodepVersion/d;/Comment/d;/GoVersion/d;' Godeps/Godeps.json)
+# Run gomod-cendor (happens only in Travis) to check that the version in
+# go.mod really exist in the remote repo and match what we have in vendor.
+if [[ "$RUN" =~ "gomod-vendor" ]] ; then
+  start_context "gomod-vendor"
+  # Remove the existing vendor directory to check that the result of
+  # `go mod vendor` is the same.
+  run_and_expect_silence rm -rf vendor/
+  run_and_expect_silence go mod vendor
   run_and_expect_silence git diff --exit-code -- ./vendor/
-  end_context #godep-restore
+  end_context
 fi
 
 #
 # Run errcheck, to ensure that error returns are always used.
-# Note: errcheck seemingly doesn't understand ./vendor/ yet, and so will fail
-# if imports are not available in $GOPATH. So, in Travis, it always needs to
-# run after `godep restore`. Locally it can run anytime, assuming you have the
-# packages present in #GOPATH.
 #
 if [[ "$RUN" =~ "errcheck" ]] ; then
   start_context "errcheck"
@@ -226,9 +215,6 @@ fi
 
 # Run generate to make sure all our generated code can be re-generated with
 # current tools.
-# Note: Some of the tools we use seemingly don't understand ./vendor yet, and
-# so will fail if imports are not available in $GOPATH. So, in travis, this
-# always needs to run after `godep restore`.
 if [[ "$RUN" =~ "generate" ]] ; then
   start_context "generate"
   # Additionally, we need to run go install before go generate because the stringer command
@@ -248,7 +234,7 @@ if [[ "$RUN" =~ "generate" ]] ; then
   # [0] - https://github.com/golang/mock/issues/30
   goSrcFiles=$(find . -name "*.go" -not -path "./vendor/*" -print)
   run_and_expect_silence sed -i 's/github.com\/letsencrypt\/boulder\/vendor\///g' ${goSrcFiles}
-  run_and_expect_silence git diff --exit-code $(ls | grep -v Godeps)
+  run_and_expect_silence git diff --exit-code $(ls)
   end_context #"generate"
 fi
 
