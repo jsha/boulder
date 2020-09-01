@@ -212,6 +212,9 @@ func main() {
 		kp,
 		logger,
 		orphanQueue)
+	if err != nil {
+		panic(err)
+	}
 	cmd.FailOnError(err, "Failed to create CA impl")
 
 	if orphanQueue != nil {
