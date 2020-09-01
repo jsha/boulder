@@ -156,6 +156,16 @@ func main() {
 		cmd.Fail("Error in CA config: MaxNames must not be 0")
 	}
 
+	var cfsslIssuers []ca.Issuer
+	var boulderIssuerConfigs []bsigner.Config
+	if features.Enabled(features.NonCFSSLSigner) {
+		boulderIssuerConfigs, err = loadBoulderIssuers(c.CA.Issuers, c.CA.SignerProfile, c.CA.IgnoredLints)
+		cmd.FailOnError(err, "Couldn't load issuers")
+	} else {
+		cfsslIssuers, err = loadCFSSLIssuers(c)
+		cmd.FailOnError(err, "Couldn't load issuers")
+	}
+
 	scope, logger := cmd.StatsAndLogging(c.Syslog, c.CA.DebugAddr)
 	defer logger.AuditPanic()
 	logger.Info(cmd.VersionString())
@@ -170,16 +180,6 @@ func main() {
 	}
 	err = pa.SetHostnamePolicyFile(c.CA.HostnamePolicyFile)
 	cmd.FailOnError(err, "Couldn't load hostname policy file")
-
-	var cfsslIssuers []ca.Issuer
-	var boulderIssuerConfigs []bsigner.Config
-	if features.Enabled(features.NonCFSSLSigner) {
-		boulderIssuerConfigs, err = loadBoulderIssuers(c.CA.Issuers, c.CA.SignerProfile, c.CA.IgnoredLints)
-		cmd.FailOnError(err, "Couldn't load issuers")
-	} else {
-		cfsslIssuers, err = loadCFSSLIssuers(c)
-		cmd.FailOnError(err, "Couldn't load issuers")
-	}
 
 	tlsConfig, err := c.CA.TLS.Load()
 	cmd.FailOnError(err, "TLS config")
