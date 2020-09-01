@@ -18,6 +18,7 @@ import re
 import requests
 import subprocess
 import shlex
+import sys
 import signal
 import time
 
@@ -384,6 +385,13 @@ def check_balance():
 
 def run_cert_checker():
     run(["./bin/cert-checker", "-config", "%s/cert-checker.json" % config_dir])
+
+def child_handler(signum, frame):
+    if not startservers.check():
+        print("startservers.check failed")
+        sys.exit(1)
+
+signal.signal(signal.SIGCHLD, child_handler)
 
 if __name__ == "__main__":
     main()
