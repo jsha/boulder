@@ -38,8 +38,8 @@
       "NumSessions": 2
     }],
     "SignerProfile": {
-      "allowRSAKeys": true,
-      "allowECDSAKeys": true,
+      "useForRSALeaves": true,
+      "useForRSALeaves": true,
       "allowMustStaple": true,
       "allowCTPoison": true,
       "allowSCTList": true,

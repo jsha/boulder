@@ -5,7 +5,7 @@ services:
         image: letsencrypt/boulder-tools-go${TRAVIS_GO_VERSION:-1.15}:2020-08-12
         environment:
             - FAKE_DNS=10.77.77.77
-            - BOULDER_CONFIG_DIR=test/config
+            - BOULDER_CONFIG_DIR=test/config-next
             - GOFLAGS=-mod=vendor
             # This is required so Python doesn't throw an error when printing
             # non-ASCII to stdout.

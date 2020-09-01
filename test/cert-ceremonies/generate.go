@@ -29,10 +29,10 @@ func createSlot(label string) (string, error) {
 	return string(matches[1]), nil
 }
 
-// genKey is used to run a key ceremony with a given config, replacing SlotID in
-// the YAML with a specific slot ID.
+// genKey is used to run a key ceremony with a given config, replacing
+// StoreKeyInSlot in the YAML with a specific slot ID.
 func genKey(path string, inSlot string) error {
-	tmpPath, err := rewriteConfig(path, map[string]string{"SlotID": inSlot})
+	tmpPath, err := rewriteConfig(path, map[string]string{"StoreKeyInSlot": inSlot})
 	if err != nil {
 		return err
 	}
@@ -69,10 +69,29 @@ func rewriteConfig(path string, rewrites map[string]string) (string, error) {
 // genCert is used to run ceremony when we don't actually care about,
 // any of the output and only want to verify it exits cleanly
 func genCert(path string) error {
-	return exec.Command("bin/ceremony", "-config", path).Run()
+	output, err := exec.Command("bin/ceremony", "-config", path).CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("error running ceremony for %s: %s:\n%s", path, err, string(output))
+	}
+	return nil
 }
 
 func main() {
+	/*
+		err := os.Remove("/tmp/root-signing-pub-rsa.pem")
+		cmd.FailOnError(err, "removing root key")
+		err = os.Remove("/tmp/root-cert-rsa.pem")
+		cmd.FailOnError(err, "removing root cert")
+		err = os.Remove("/tmp/intermediate-signing-pub-rsa.pem")
+		cmd.FailOnError(err, "removing root cert")
+		err = os.Remove("/tmp/intermediate-cert-rsa-a.pem")
+		cmd.FailOnError(err, "removing root cert")
+		err = os.Remove("/tmp/intermediate-cert-rsa-b.pem")
+		cmd.FailOnError(err, "removing root cert")
+		err = os.Remove("/tmp/intermediate-ocsp.b64")
+		cmd.FailOnError(err, "removing root cert")
+	*/
+
 	// Create a SoftHSM slot for the root signing key
 	rootKeySlot, err := createSlot("root signing key (rsa)")
 	cmd.FailOnError(err, "failed creating softhsm2 slot for root key")
@@ -92,9 +111,9 @@ func main() {
 	// Create the A intermediate ceremony config file with the root
 	// signing key slot and ID
 	tmpRSAIntermediateA, err := rewriteConfig("test/cert-ceremonies/intermediate-ceremony-rsa.yaml", map[string]string{
-		"SlotID":     rootKeySlot,
-		"CertPath":   "/tmp/intermediate-cert-rsa-a.pem",
-		"CommonName": "CA intermediate (RSA) A",
+		"SigningKeySlot": rootKeySlot,
+		"CertPath":       "/tmp/intermediate-cert-rsa-a.pem",
+		"CommonName":     "CA intermediate (RSA) A",
 	})
 	cmd.FailOnError(err, "failed to rewrite intermediate cert config with key ID")
 	// Create the A intermediate certificate
@@ -104,9 +123,9 @@ func main() {
 	// Create the B intermediate ceremony config file with the root
 	// signing key slot and ID
 	tmpRSAIntermediateB, err := rewriteConfig("test/cert-ceremonies/intermediate-ceremony-rsa.yaml", map[string]string{
-		"SlotID":     rootKeySlot,
-		"CertPath":   "/tmp/intermediate-cert-rsa-b.pem",
-		"CommonName": "CA intermediate (RSA) B",
+		"SigningKeySlot": rootKeySlot,
+		"CertPath":       "/tmp/intermediate-cert-rsa-b.pem",
+		"CommonName":     "CA intermediate (RSA) B",
 	})
 	cmd.FailOnError(err, "failed to rewrite intermediate cert config with key ID")
 	// Create the B intermediate certificate
@@ -115,7 +134,7 @@ func main() {
 
 	// Create an OCSP response for the A intermediate
 	tmpOCSPConfig, err := rewriteConfig("test/cert-ceremonies/intermediate-ocsp.yaml", map[string]string{
-		"SlotID": rootKeySlot,
+		"SigningKeySlot": rootKeySlot,
 	})
 	cmd.FailOnError(err, "failed to rewrite intermediate OCSP config with key ID")
 	err = genCert(tmpOCSPConfig)
