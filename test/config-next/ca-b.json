@@ -39,7 +39,7 @@
     }],
     "SignerProfile": {
       "useForRSALeaves": true,
-      "useForRSALeaves": true,
+      "useForECDSALeaves": true,
       "allowMustStaple": true,
       "allowCTPoison": true,
       "allowSCTList": true,
