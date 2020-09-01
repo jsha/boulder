@@ -239,8 +239,9 @@ func newStatsRegistry(addr string, logger blog.Logger) prometheus.Registerer {
 func Fail(msg string) {
 	logger := blog.Get()
 	logger.AuditErr(msg)
-	fmt.Fprint(os.Stderr, msg)
+	fmt.Fprintln(os.Stderr, msg)
 	os.Exit(1)
+	panic("post-exit??")
 }
 
 // FailOnError exits and prints an error message, but only if we encountered

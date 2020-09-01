@@ -171,6 +171,7 @@ func main() {
 	err = pa.SetHostnamePolicyFile(c.CA.HostnamePolicyFile)
 	cmd.FailOnError(err, "Couldn't load hostname policy file")
 
+	logger.Info("About to make issuers")
 	var cfsslIssuers []ca.Issuer
 	var boulderIssuerConfigs []bsigner.Config
 	if features.Enabled(features.NonCFSSLSigner) {
@@ -180,16 +181,19 @@ func main() {
 		cfsslIssuers, err = loadCFSSLIssuers(c)
 		cmd.FailOnError(err, "Couldn't load issuers")
 	}
+	logger.Info("Done making issuers")
 
 	tlsConfig, err := c.CA.TLS.Load()
 	cmd.FailOnError(err, "TLS config")
 
 	clk := cmd.Clock()
 
+	logger.Info("About to make SA")
 	clientMetrics := bgrpc.NewClientMetrics(scope)
 	conn, err := bgrpc.ClientSetup(c.CA.SAService, tlsConfig, clientMetrics, clk)
 	cmd.FailOnError(err, "Failed to load credentials and create gRPC connection to SA")
 	sa := bgrpc.NewStorageAuthorityClient(sapb.NewStorageAuthorityClient(conn))
+	logger.Info("Done making SA")
 
 	kp, err := goodkey.NewKeyPolicy(c.CA.WeakKeyFile, c.CA.BlockedKeyFile, sa.KeyBlocked)
 	cmd.FailOnError(err, "Unable to create key policy")
@@ -201,6 +205,7 @@ func main() {
 		defer func() { _ = orphanQueue.Close() }()
 	}
 
+	logger.Info("About to make CA")
 	cai, err := ca.NewCertificateAuthorityImpl(
 		c.CA,
 		sa,
@@ -213,6 +218,7 @@ func main() {
 		logger,
 		orphanQueue)
 	cmd.FailOnError(err, "Failed to create CA impl")
+	logger.Info("Done making CA")
 
 	if orphanQueue != nil {
 		go cai.OrphanIntegrationLoop()
@@ -223,6 +229,7 @@ func main() {
 	cmd.FailOnError(err, "Unable to setup CA gRPC server")
 	caWrapper := bgrpc.NewCertificateAuthorityServer(cai)
 	capb.RegisterCertificateAuthorityServer(caSrv, caWrapper)
+	logger.Info("About to serve CA gRPC")
 	go func() {
 		cmd.FailOnError(cmd.FilterShutdownErrors(caSrv.Serve(caListener)), "CA gRPC service failed")
 	}()
@@ -231,6 +238,7 @@ func main() {
 	cmd.FailOnError(err, "Unable to setup CA gRPC server")
 	ocspWrapper := bgrpc.NewCertificateAuthorityServer(cai)
 	capb.RegisterOCSPGeneratorServer(ocspSrv, ocspWrapper)
+	logger.Info("About to serve OCSP gRPC")
 	go func() {
 		cmd.FailOnError(cmd.FilterShutdownErrors(ocspSrv.Serve(ocspListener)),
 			"OCSPGenerator gRPC service failed")
@@ -241,5 +249,6 @@ func main() {
 		ocspSrv.GracefulStop()
 	})
 
+	logger.Info("Selecting")
 	select {}
 }
