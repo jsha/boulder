@@ -154,11 +154,13 @@ func main() {
 	cmd.FailOnError(err, "Failed to load credentials and create gRPC connection to Publisher")
 	pubc := bgrpc.NewPublisherClientWrapper(pubpb.NewPublisherClient(conn))
 
+	var apc akamaipb.AkamaiPurgerClient
+	var issuerCert *issuance.Certificate
 	apConn, err := bgrpc.ClientSetup(c.RA.AkamaiPurgerService, tlsConfig, clientMetrics, clk)
 	cmd.FailOnError(err, "Unable to create a Akamai Purger client")
-	apc := akamaipb.NewAkamaiPurgerClient(apConn)
+	apc = akamaipb.NewAkamaiPurgerClient(apConn)
 
-	issuerCert, err := issuance.LoadCertificate(c.RA.IssuerCertPath)
+	issuerCert, err = issuance.LoadCertificate(c.RA.IssuerCertPath)
 	cmd.FailOnError(err, "Failed to load issuer certificate")
 
 	// Boulder's components assume that there will always be CT logs configured.
