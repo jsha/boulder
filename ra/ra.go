@@ -26,7 +26,6 @@ import (
 	"github.com/letsencrypt/boulder/goodkey"
 	bgrpc "github.com/letsencrypt/boulder/grpc"
 	"github.com/letsencrypt/boulder/identifier"
-	"github.com/letsencrypt/boulder/issuance"
 	blog "github.com/letsencrypt/boulder/log"
 	"github.com/letsencrypt/boulder/metrics"
 	"github.com/letsencrypt/boulder/policy"
@@ -76,7 +75,7 @@ type RegistrationAuthorityImpl struct {
 	reuseValidAuthz              bool
 	orderLifetime                time.Duration
 
-	issuer *issuance.Certificate
+	issuer *x509.Certificate
 	purger akamaipb.AkamaiPurgerClient
 
 	ctpolicy *ctpolicy.CTPolicy
@@ -107,7 +106,7 @@ func NewRegistrationAuthorityImpl(
 	orderLifetime time.Duration,
 	ctp *ctpolicy.CTPolicy,
 	purger akamaipb.AkamaiPurgerClient,
-	issuer *issuance.Certificate,
+	issuer *x509.Certificate,
 ) *RegistrationAuthorityImpl {
 	ctpolicyResults := prometheus.NewHistogramVec(
 		prometheus.HistogramOpts{
