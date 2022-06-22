@@ -163,6 +163,7 @@ func (m *mailer) sendNags(conn bmail.Conn, contacts []string, certs []*x509.Cert
 		DaysToExpiration  int
 		TruncatedDNSNames []string
 		TruncatedSerials  []string
+		Err               string `json:",omitempty"`
 	}{
 		Rcpt:              emails,
 		DaysToExpiration:  email.DaysToExpiration,
@@ -179,6 +180,12 @@ func (m *mailer) sendNags(conn bmail.Conn, contacts []string, certs []*x509.Cert
 	startSending := m.clk.Now()
 	err = conn.SendMail(emails, subjBuf.String(), msgBuf.String())
 	if err != nil {
+		logItem.Err = err.Error()
+		logStr, err := json.Marshal(logItem)
+		if err != nil {
+			m.log.Errf("logItem could not be serialized to JSON. Raw: %+v", logItem)
+			return err
+		}
 		m.log.Errf("failed send JSON=%s", string(logStr))
 		return err
 	}
