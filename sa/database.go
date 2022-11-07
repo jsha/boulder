@@ -214,7 +214,7 @@ func NewDbMapFromConfig(config *mysql.Config, settings DbSettings) (*boulderDB.W
 }
 
 // adjustMySQLConfig sets certain flags that we want on every connection.
-func adjustMySQLConfig(conf *mysql.Config) *mysql.Config {
+func adjustMySQLConfig(conf *mysql.Config) {
 	// Required to turn DATETIME fields into time.Time
 	conf.ParseTime = true
 
@@ -234,7 +234,8 @@ func adjustMySQLConfig(conf *mysql.Config) *mysql.Config {
 
 	// If a given parameter is not already set in conf.Params, set it.
 	setDefault := func(name, value string) {
-		if _, ok := conf.Params[name]; !ok {
+		_, ok := conf.Params[name]
+		if !ok {
 			conf.Params[name] = value
 		}
 	}
@@ -265,8 +266,6 @@ func adjustMySQLConfig(conf *mysql.Config) *mysql.Config {
 		setDefault("long_query_time", fmt.Sprintf("%g", readTimeout*0.80))
 		omitZero("max_statement_time")
 	}
-
-	return conf
 }
 
 // SetSQLDebug enables GORP SQL-level Debugging
