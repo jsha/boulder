@@ -200,3 +200,23 @@ func TestAllocCancelDoesntStarve(t *testing.T) {
 	}
 	sem.Release(1)
 }
+
+func TestMaxWaiters(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	sem := semaphore.NewWeighted(1, 10)
+	sem.Acquire(ctx, 1)
+
+	for i := 0; i < 10; i++ {
+		go func() {
+			sem.Acquire(ctx, 1)
+			<-ctx.Done()
+		}()
+	}
+
+	time.Sleep(50 * time.Millisecond)
+	err := sem.Acquire(ctx, 1)
+	if err != semaphore.ErrMaxWaiters {
+		t.Errorf("expected error when maxWaiters was reached, but got %#v", err)
+	}
+}

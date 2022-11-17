@@ -19,10 +19,14 @@ type waiter struct {
 	ready      chan<- struct{} // Closed when semaphore acquired.
 }
 
+// ErrMaxWaiters is returned when Acquire is called, but there are more than
+// maxWaiters waiters.
+var ErrMaxWaiters = errors.New("too many waiters")
+
 // NewWeighted creates a new weighted semaphore with the given
 // maximum combined weight for concurrent access.
 // maxWaiters provides a limit such that calls to Acquire
-// will immediately error if the number of weighters is that high.
+// will immediately error if the number of waiters is that high.
 // A maxWaiters of zero means no limit.
 func NewWeighted(n int64, maxWaiters int) *Weighted {
 	w := &Weighted{size: n, maxWaiters: maxWaiters}
@@ -61,8 +65,8 @@ func (s *Weighted) Acquire(ctx context.Context, n int64) error {
 		return ctx.Err()
 	}
 
-	if s.maxWaiters > 0 && s.waiters.Len() > s.maxWaiters {
-		return errors.New("too many waiters")
+	if s.maxWaiters > 0 && s.waiters.Len() >= s.maxWaiters {
+		return ErrMaxWaiters
 	}
 
 	ready := make(chan struct{})
