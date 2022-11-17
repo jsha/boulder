@@ -14,9 +14,8 @@ import (
 )
 
 type waiter struct {
-	n          int64
-	maxWaiters int
-	ready      chan<- struct{} // Closed when semaphore acquired.
+	n     int64
+	ready chan<- struct{} // Closed when semaphore acquired.
 }
 
 // ErrMaxWaiters is returned when Acquire is called, but there are more than
@@ -81,7 +80,7 @@ func (s *Weighted) Acquire(ctx context.Context, n int64) error {
 		select {
 		case <-ready:
 			// Acquired the semaphore after we were canceled.  Rather than trying to
-			// fix up the queue, just pretend we didn't notice the cancelation.
+			// fix up the queue, just pretend we didn't notice the cancellation.
 			err = nil
 		default:
 			isFront := s.waiters.Front() == elem
