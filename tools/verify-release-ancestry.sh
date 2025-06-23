@@ -7,6 +7,9 @@
 #
 set -u
 
+# Print for debugging
+git for-each-ref "refs/remotes/origin/release-branch-*"
+
 if git merge-base --is-ancestor "$1" origin/main ; then
   echo "'$1' is an ancestor of main"
   exit 0
